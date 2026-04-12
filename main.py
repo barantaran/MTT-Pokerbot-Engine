@@ -10,7 +10,14 @@ from engine.config import config
 from engine.player_interface import Bot
 from engine.tournament import Tournament
 
-ALLOWED_MODULES = {'math', 'random', 'numpy', 'pandas', 'engine.player_interface'}
+ALLOWED_MODULES = {
+    'math',
+    'random',
+    'numpy',
+    'pandas',
+    'engine.player_interface',
+    'engine.openai_bot_support',
+}
 
 def load_bots(players_dir="players"):
     """
