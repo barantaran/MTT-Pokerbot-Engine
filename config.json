@@ -1,5 +1,5 @@
 {
-  "simulation_count": 10,
+  "simulation_count": 1,
   "bot_decision_timeout_ms": 500,
   "starting_stack": 1500,
   "max_players_per_table": 9,

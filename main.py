@@ -17,6 +17,7 @@ ALLOWED_MODULES = {
     'pandas',
     'engine.player_interface',
     'engine.openai_bot_support',
+    'engine.pokerstove_equity',
 }
 
 def load_bots(players_dir="players"):
