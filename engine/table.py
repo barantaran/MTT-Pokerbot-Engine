@@ -11,8 +11,10 @@ class Table:
     Manages a single poker table.
     Handles dealing, betting rounds, and winner evaluation.
     """
-    def __init__(self, table_id: int):
+    def __init__(self, table_id: int, tournament_id: int = 0):
         self.table_id = table_id
+        self.tournament_id = tournament_id
+        self.hand_id = 0
         self.players: List[PlayerState] = []
         self.button_idx = 0
         self.evaluator = Evaluator()
@@ -36,6 +38,7 @@ class Table:
         events = []
         if len(self.players) < 2:
             return [], events
+        self.hand_id += 1
 
         # 1. Setup
         for p in self.players:
@@ -44,6 +47,8 @@ class Table:
         events.append({
             "type": "hand_start",
             "table_id": self.table_id,
+            "hand_id": self.hand_id,
+            "tournament_id": self.tournament_id,
             "players": [{"name": p.name, "stack": p.stack} for p in self.players]
         })
             
@@ -143,7 +148,12 @@ class Table:
                         "call_amount": call_amount,
                         "min_raise": min_raise,
                         "blinds": blinds,
-                        "active_players": self._active_players_count()
+                        "active_players": self._active_players_count(),
+                        "player_id": player.name,
+                        "table_id": self.table_id,
+                        "hand_id": self.hand_id,
+                        "tournament_id": self.tournament_id,
+                        "position": self._position_label(idx, num_players),
                     }
                     
                     try:
@@ -213,6 +223,16 @@ class Table:
         # End of betting round: reset current_bet for next round
         for p in self.players:
              p.current_bet = 0
+
+    def _position_label(self, idx: int, num_players: int) -> str:
+        if idx == self.button_idx:
+            return "BTN"
+        if idx == (self.button_idx + 1) % num_players:
+            return "SB"
+        if idx == ((self.button_idx + 2) % num_players if num_players > 2 else self.button_idx):
+            return "BB"
+        labels = ["UTG", "UTG_1", "UTG_2", "LJ", "HJ", "CO"]
+        return labels[(idx - self.button_idx - 3) % len(labels)]
 
     def _showdown(self, board: List[int], pot_manager: PotManager, deck: Deck, events: List[Dict]):
         pot_manager.collect_bets(self.players)

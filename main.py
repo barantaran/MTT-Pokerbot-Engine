@@ -75,7 +75,7 @@ def load_bots(players_dir="players"):
 
 def run_single_simulation(sim_id, bots):
     print(f"Starting Simulation #{sim_id}...")
-    tournament = Tournament(bots)
+    tournament = Tournament(bots, tournament_id=sim_id)
     results, events = tournament.play()
     
     # Dump events to JSON log file

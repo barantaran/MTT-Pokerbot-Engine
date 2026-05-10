@@ -8,7 +8,8 @@ class Tournament:
     """
     Orchestrates the entire multi-table tournament.
     """
-    def __init__(self, bots: List[Any]):
+    def __init__(self, bots: List[Any], tournament_id: int = 0):
+        self.tournament_id = tournament_id
         self.players = [PlayerState(bot, config.starting_stack) for bot in bots]
         self.tables: List[Table] = []
         self.placements: List[PlayerState] = []
@@ -20,6 +21,7 @@ class Tournament:
         
         self.events.append({
             "type": "tournament_start",
+            "tournament_id": self.tournament_id,
             "blinds": config.blinds_schedule[self.current_blind_idx],
             "players": [p.name for p in self.players]
         })
@@ -33,7 +35,7 @@ class Tournament:
         table_id = 1
         for i in range(0, len(self.players), max_p):
             table_players = self.players[i:i+max_p]
-            table = Table(table_id)
+            table = Table(table_id, tournament_id=self.tournament_id)
             for p in table_players:
                 table.add_player(p)
                 self.events.append({"type": "seat", "player": p.name, "table_id": table_id})
