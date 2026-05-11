@@ -79,7 +79,23 @@ class Tournament:
         Runs the tournament until 1 player remains.
         Returns (placements_list, events_list).
         """
+        max_hands = getattr(config, "max_hands_per_tournament", None)
+        total_hands_played = 0
         while sum(len(t.players) for t in self.tables) > 1:
+            if max_hands is not None and total_hands_played >= max_hands:
+                remaining = sorted(
+                    [p for table in self.tables for p in table.players],
+                    key=lambda p: p.stack,
+                    reverse=True,
+                )
+                self.placements.extend(reversed(remaining))
+                self.events.append({
+                    "type": "tournament_stopped_max_hands",
+                    "tournament_id": self.tournament_id,
+                    "max_hands": max_hands,
+                })
+                break
+
             blinds = config.blinds_schedule[self.current_blind_idx]
             
             # Play one hand on all active tables
@@ -94,6 +110,7 @@ class Tournament:
                     self.placements.extend(busted)
             
             self.hands_played += 1
+            total_hands_played += 1
             if self.hands_played >= config.hands_per_level:
                 self.hands_played = 0
                 if self.current_blind_idx < len(config.blinds_schedule) - 1:
@@ -104,7 +121,7 @@ class Tournament:
             self._coalesce_tables()
             
         # Add the winner to the end of the list
-        if self.tables and self.tables[0].players:
+        if sum(len(t.players) for t in self.tables) == 1 and self.tables and self.tables[0].players:
             winner = self.tables[0].players[0]
             self.placements.append(winner)
             self.events.append({"type": "tournament_win", "player": winner.name})

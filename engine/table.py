@@ -106,6 +106,13 @@ class Table:
 
         # 6. Showdown and Pot Distribution
         self._showdown(board, pot_manager, deck, events)
+        events.append({
+            "type": "hand_end",
+            "table_id": self.table_id,
+            "hand_id": self.hand_id,
+            "tournament_id": self.tournament_id,
+            "players": [{"name": p.name, "stack": p.stack} for p in self.players],
+        })
         
         # 7. Cleanup
         busted_players = [p for p in self.players if p.stack == 0]
