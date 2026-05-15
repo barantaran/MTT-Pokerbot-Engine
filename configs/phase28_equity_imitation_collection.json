@@ -1,0 +1,33 @@
+{
+  "phase28_equity_imitation_collection_id": "phase28_equity_imitation_collection",
+  "output_dir": "runs/phase28_equity_imitation_collection",
+  "basemodel_root": "../poker-ai-basemodel",
+  "tournament_count": 10,
+  "random_seed": 2800,
+  "starting_stack": 1500,
+  "max_players_per_table": 9,
+  "hands_per_level": 10,
+  "max_hands_per_tournament": 250,
+  "bot_decision_timeout_ms": 500,
+  "blinds_schedule": [
+    {"small": 10, "big": 20},
+    {"small": 15, "big": 30},
+    {"small": 25, "big": 50},
+    {"small": 50, "big": 100}
+  ],
+  "payouts": {
+    "1": 0.5,
+    "2": 0.3,
+    "3": 0.2
+  },
+  "lineup": {
+    "model": 0,
+    "random": 12,
+    "equity_aggressive": 9,
+    "aggressive_no_equity": 9,
+    "call": 6
+  },
+  "acceptance": {
+    "min_dataset_rows": 100
+  }
+}

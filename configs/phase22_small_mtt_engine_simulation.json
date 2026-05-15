@@ -1,0 +1,61 @@
+{
+  "acceptance": {
+    "max_model_illegal_actions": 0,
+    "max_model_inference_errors": 0,
+    "max_model_timeout_fallbacks": 0,
+    "min_completed_tournaments": 1,
+    "require_event_logs": true,
+    "require_result_artifact": true
+  },
+  "basemodel_root": "../poker-ai-basemodel",
+  "blinds_schedule": [
+    {
+      "big": 20,
+      "small": 10
+    },
+    {
+      "big": 30,
+      "small": 15
+    },
+    {
+      "big": 50,
+      "small": 25
+    },
+    {
+      "big": 100,
+      "small": 50
+    },
+    {
+      "big": 200,
+      "small": 100
+    }
+  ],
+  "bot_decision_timeout_ms": 500,
+  "deterministic": true,
+  "equity_fallback_source": "constant",
+  "equity_iterations": null,
+  "equity_source": "treys",
+  "expected_phase21_status": "accepted",
+  "hands_per_level": 10,
+  "lineup": {
+    "aggressive_no_equity": 2,
+    "call": 1,
+    "equity_aggressive": 2,
+    "model": 1,
+    "random": 3
+  },
+  "max_hands_per_tournament": 250,
+  "max_players_per_table": 9,
+  "output_dir": "runs/phase22_small_mtt_engine_simulation",
+  "payouts": {
+    "1": 0.5,
+    "2": 0.3,
+    "3": 0.2
+  },
+  "phase21_report_glob": "runs/phase21_engine_bot_wiring_smoke_test/*/engine_wiring_report.json",
+  "phase22_small_engine_simulation_id": "phase22_small_mtt_engine_simulation",
+  "random_seed": 2200,
+  "required_small_mtt_engine_simulation_allowed": true,
+  "starting_stack": 1500,
+  "tournament_count": 3
+}

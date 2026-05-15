@@ -1,0 +1,84 @@
+{
+  "acceptance": {
+    "max_model_illegal_actions": 0,
+    "max_model_inference_errors": 0,
+    "max_model_timeout_fallbacks": 0,
+    "max_stopped_max_hands_rate": 0.1,
+    "min_completed_tournaments": 45,
+    "require_event_summary_artifact": true,
+    "require_result_artifact": true
+  },
+  "basemodel_root": "../poker-ai-basemodel",
+  "blinds_schedule": [
+    {
+      "big": 20,
+      "small": 10
+    },
+    {
+      "big": 30,
+      "small": 15
+    },
+    {
+      "big": 50,
+      "small": 25
+    },
+    {
+      "big": 100,
+      "small": 50
+    },
+    {
+      "big": 200,
+      "small": 100
+    },
+    {
+      "big": 400,
+      "small": 200
+    },
+    {
+      "big": 800,
+      "small": 400
+    }
+  ],
+  "bot_decision_timeout_ms": 500,
+  "decision_thresholds": {
+    "min_model_entries_for_decision": 100,
+    "positive_model_itm_rate": 0.15,
+    "weak_model_average_position_quantile": 0.6
+  },
+  "deterministic": true,
+  "equity_fallback_source": "constant",
+  "equity_iterations": null,
+  "equity_source": "treys",
+  "event_logging": {
+    "write_event_summaries": true,
+    "write_full_event_logs": false,
+    "write_full_event_logs_for_first_n": 3
+  },
+  "expected_phase22_status": "accepted",
+  "hands_per_level": 10,
+  "lineup": {
+    "aggressive_no_equity": 9,
+    "call": 3,
+    "equity_aggressive": 9,
+    "model": 3,
+    "random": 12
+  },
+  "max_hands_per_tournament": 600,
+  "max_players_per_table": 9,
+  "output_dir": "runs/phase23_larger_mtt_engine_simulation",
+  "payouts": {
+    "1": 0.35,
+    "2": 0.22,
+    "3": 0.16,
+    "4": 0.11,
+    "5": 0.08,
+    "6": 0.05,
+    "7": 0.03
+  },
+  "phase22_report_glob": "runs/phase22_small_mtt_engine_simulation/*/small_mtt_engine_simulation_report.json",
+  "phase23_larger_engine_simulation_id": "phase23_larger_mtt_engine_simulation",
+  "random_seed": 2300,
+  "required_larger_mtt_engine_simulation_allowed": true,
+  "starting_stack": 1500,
+  "tournament_count": 50
+}

@@ -153,6 +153,86 @@ Or from the workspace root:
 
 Expected result: the command reads the accepted Phase 20 promotion report, loads the promoted checkpoint through `engine/baseline_model_bot.py`, verifies visible-state privacy, 62-float observation encoding, legal engine action outputs, conservative fallback behavior, and timeout handling, then writes `runs/phase21_engine_bot_wiring_smoke_test/<run>/engine_wiring_report.json`. Phase 22 may start only when the report says `phase21_engine_wiring_status: accepted` and `small_mtt_engine_simulation_allowed: true`.
 
+Phase 22 runs the accepted model bot through a bounded small MTT engine simulation with mixed opponents, including `RandomBot` and the equity-aware `AggressiveBot`. It is a diagnostic engine simulation, not a training phase or promotion proof.
+
+Command from this directory:
+
+```bash
+../poker-ai-basemodel/.venv/bin/python -m engine.phase22_small_mtt_engine_simulation --config configs/phase22_small_mtt_engine_simulation.json
+```
+
+Command from the workspace root:
+
+```bash
+./scripts/phase22_small_mtt_engine_simulation.sh
+```
+
+Expected result: the command reads the accepted Phase 21 report, loads the promoted checkpoint, builds a fixed lineup with the model bot, random bots, the equity-aware aggressive bot, and fixed baseline bots, runs bounded engine tournaments, writes event logs and result artifacts under `runs/phase22_small_mtt_engine_simulation/<run>/`, and records whether larger MTT engine simulation may start.
+
+Phase 23 expands this into a larger multi-table engine simulation campaign. It remains evaluation, not training, and decides whether Phase 24 should collect proper per-decision engine rollouts before any training update.
+
+Command from this directory:
+
+```bash
+../poker-ai-basemodel/.venv/bin/python -m engine.phase23_larger_mtt_engine_simulation --config configs/phase23_larger_mtt_engine_simulation.json
+```
+
+Command from the workspace root:
+
+```bash
+./scripts/phase23_larger_mtt_engine_simulation.sh
+```
+
+Expected result: the command reads the accepted Phase 22 report, runs a larger mixed-opponent MTT engine campaign, writes aggregate tournament results and event summaries under `runs/phase23_larger_mtt_engine_simulation/<run>/`, and recommends whether to launch engine-backed rollout collection.
+
+Phase 24 collects engine rollouts for retraining. It reads the accepted Phase 23 report, requires `engine_rollout_collection_allowed: true`, runs bounded mixed-opponent engine MTTs, and writes training-ready per-decision model records under `runs/phase24_engine_rollout_collection/<run>/`. The rollout artifact includes the 62-float observation, 9-way legal-action mask, selected model action id, mapped engine action, logprob/value fields, fallback diagnostics, reward fields, and terminal tournament outcomes. It is a data-collection phase, not a training phase.
+
+Command from this directory:
+
+```bash
+../poker-ai-basemodel/.venv/bin/python -m engine.phase24_engine_rollout_collection --config configs/phase24_engine_rollout_collection.json
+```
+
+Command from the workspace root:
+
+```bash
+./scripts/phase24_engine_rollout_collection.sh
+```
+
+Expected result: the command writes `runs/phase24_engine_rollout_collection/<run>/engine_rollout_collection_report.json`, `rollouts/model_decisions.jsonl`, `rollouts/terminal_outcomes.jsonl`, and `rollouts/manifest.json`. Phase 25 training should start only when the report says `phase24_engine_rollout_collection_status: accepted` and `phase25_engine_training_allowed: true`.
+
+Phase 26 evaluates the Phase 25 retrained candidate checkpoint against the Phase 24 source checkpoint in paired mixed-opponent engine MTT campaigns. It is an evaluation phase only; it does not promote the candidate.
+
+Command from this directory:
+
+```bash
+../poker-ai-basemodel/.venv/bin/python -m engine.phase26_engine_retraining_evaluation --config configs/phase26_engine_retraining_evaluation.json
+```
+
+Command from the workspace root:
+
+```bash
+./scripts/phase26_engine_retraining_evaluation.sh
+```
+
+Expected result: the command reads the latest accepted Phase 25 report, runs source and candidate checkpoints with the same deterministic seeds and lineup, writes per-campaign results under `runs/phase26_engine_retraining_evaluation/<run>/campaigns/`, and writes `engine_retraining_evaluation_report.json`. Phase 27 promotion decision work should start only when the report says `phase26_engine_retraining_evaluation_status: accepted` and `phase27_promotion_decision_allowed: true`.
+
+Phase 29 evaluates the Phase 28 reduced-observation imitation checkpoint through `engine/reduced_model_bot.py`. It is an evaluation phase only; it does not replace the 62-feature model bot or promote the reduced checkpoint.
+
+Command from this directory:
+
+```bash
+../poker-ai-basemodel/.venv/bin/python -m engine.phase29_reduced_clone_engine_evaluation --config configs/phase29_reduced_clone_engine_evaluation.json
+```
+
+Command from the workspace root:
+
+```bash
+./scripts/phase29_reduced_clone_engine_evaluation.sh
+```
+
+Expected result: the command reads the latest accepted Phase 28 imitation-training report, loads the reduced checkpoint with `observation_size=8`, runs a mixed-opponent MTT evaluation, and writes `runs/phase29_reduced_clone_engine_evaluation/<run>/reduced_clone_engine_evaluation_report.json`. Phase 30 should start only when the report says `phase29_reduced_clone_engine_evaluation_status: accepted` and `phase30_reduced_clone_decision_allowed: true`.
+
 ---
 
 ## Step 6: Use the Visualizer

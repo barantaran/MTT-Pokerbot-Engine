@@ -1,0 +1,90 @@
+{
+  "acceptance": {
+    "max_model_illegal_actions": 0,
+    "max_model_inference_errors": 0,
+    "max_model_timeout_fallbacks": 0,
+    "max_stopped_max_hands_rate": 0.2,
+    "min_completed_tournaments": 8,
+    "min_model_decisions": 50,
+    "require_manifest": true,
+    "require_no_privacy_violations": true,
+    "require_rollout_artifact": true,
+    "require_terminal_outcomes": true
+  },
+  "basemodel_root": "../poker-ai-basemodel",
+  "blinds_schedule": [
+    {
+      "big": 20,
+      "small": 10
+    },
+    {
+      "big": 30,
+      "small": 15
+    },
+    {
+      "big": 50,
+      "small": 25
+    },
+    {
+      "big": 100,
+      "small": 50
+    },
+    {
+      "big": 200,
+      "small": 100
+    },
+    {
+      "big": 400,
+      "small": 200
+    },
+    {
+      "big": 800,
+      "small": 400
+    }
+  ],
+  "bot_decision_timeout_ms": 500,
+  "deterministic": true,
+  "equity_fallback_source": "constant",
+  "equity_iterations": null,
+  "equity_source": "treys",
+  "event_logging": {
+    "write_event_summaries": true,
+    "write_full_event_logs": false,
+    "write_full_event_logs_for_first_n": 1
+  },
+  "expected_phase23_status": "accepted",
+  "hands_per_level": 10,
+  "lineup": {
+    "aggressive_no_equity": 9,
+    "call": 3,
+    "equity_aggressive": 9,
+    "model": 3,
+    "random": 12
+  },
+  "max_hands_per_tournament": 600,
+  "max_players_per_table": 9,
+  "output_dir": "runs/phase24_engine_rollout_collection",
+  "payouts": {
+    "1": 0.35,
+    "2": 0.22,
+    "3": 0.16,
+    "4": 0.11,
+    "5": 0.08,
+    "6": 0.05,
+    "7": 0.03
+  },
+  "phase23_report_glob": "runs/phase23_larger_mtt_engine_simulation/*/larger_mtt_engine_simulation_report.json",
+  "phase24_engine_rollout_collection_id": "phase24_engine_rollout_collection",
+  "random_seed": 2400,
+  "required_engine_rollout_collection_allowed": true,
+  "rollout_collection": {
+    "include_action_probabilities": true,
+    "include_reward_fields": true,
+    "include_terminal_outcomes": true,
+    "include_value_estimates": true,
+    "schema_version": 1,
+    "write_jsonl": true
+  },
+  "starting_stack": 1500,
+  "tournament_count": 10
+}
