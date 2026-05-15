@@ -135,6 +135,26 @@ The engine will execute entirely inside the Docker container and automatically s
 
 ---
 
+## Poker AI Integration
+
+Phase 21 wires a promoted `poker-ai-basemodel` checkpoint into the engine bot API before any larger engine simulation starts. It is a smoke test, not a tournament-quality evaluation.
+
+From this directory:
+
+```bash
+../poker-ai-basemodel/.venv/bin/python -m engine.phase21_engine_bot_wiring --config configs/phase21_engine_bot_wiring_smoke_test.json
+```
+
+Or from the workspace root:
+
+```bash
+./scripts/phase21_engine_bot_wiring_smoke_test.sh
+```
+
+Expected result: the command reads the accepted Phase 20 promotion report, loads the promoted checkpoint through `engine/baseline_model_bot.py`, verifies visible-state privacy, 62-float observation encoding, legal engine action outputs, conservative fallback behavior, and timeout handling, then writes `runs/phase21_engine_bot_wiring_smoke_test/<run>/engine_wiring_report.json`. Phase 22 may start only when the report says `phase21_engine_wiring_status: accepted` and `small_mtt_engine_simulation_allowed: true`.
+
+---
+
 ## Step 6: Use the Visualizer
 
 ![Visualizer](visualizer.png)

@@ -1,0 +1,103 @@
+{
+  "phase21_engine_wiring_id": "phase21_engine_bot_wiring_smoke_test",
+  "source_phase20_report_glob": "../poker-ai-basemodel/runs/phase20_mtt_promotion_evaluation/*/promotion_evaluation_report.json",
+  "source_phase20_report_path": "",
+  "required_phase20_status": "accepted",
+  "required_mtt_engine_bot_simulation_allowed": true,
+  "basemodel_root": "../poker-ai-basemodel",
+  "artifact_root_template": "runs/phase21_engine_bot_wiring_smoke_test/{run_stamp}",
+  "engine_wiring_report_path_template": "{artifact_root}/engine_wiring_report.json",
+  "adapter_name": "Phase21PromotedMTTBot",
+  "deterministic": true,
+  "decision_timeout_ms": 500,
+  "equity_source": "treys",
+  "equity_fallback_source": "constant",
+  "equity_iterations": 40,
+  "max_runtime_seconds": 30.0,
+  "smoke_states": [
+    {
+      "name": "check_path",
+      "game_state": {
+        "hole_cards": [],
+        "board_cards": [],
+        "pot_size": 30,
+        "stack_size": 1500,
+        "call_amount": 0,
+        "min_raise": 20,
+        "blinds": {
+          "small": 10,
+          "big": 20
+        },
+        "active_players": 4,
+        "position": "BTN",
+        "player_id": "phase21_hero",
+        "table_id": 1,
+        "hand_id": 1,
+        "tournament_id": 21
+      }
+    },
+    {
+      "name": "call_path",
+      "game_state": {
+        "hole_cards": [],
+        "board_cards": [],
+        "pot_size": 120,
+        "stack_size": 1480,
+        "call_amount": 20,
+        "min_raise": 20,
+        "blinds": {
+          "small": 10,
+          "big": 20
+        },
+        "active_players": 5,
+        "position": "BB",
+        "player_id": "phase21_hero",
+        "table_id": 1,
+        "hand_id": 2,
+        "tournament_id": 21
+      }
+    },
+    {
+      "name": "raise_path",
+      "game_state": {
+        "hole_cards": [],
+        "board_cards": [],
+        "pot_size": 300,
+        "stack_size": 1200,
+        "call_amount": 40,
+        "min_raise": 40,
+        "blinds": {
+          "small": 20,
+          "big": 40
+        },
+        "active_players": 6,
+        "position": "CO",
+        "player_id": "phase21_hero",
+        "table_id": 2,
+        "hand_id": 3,
+        "tournament_id": 21
+      }
+    },
+    {
+      "name": "short_stack_path",
+      "game_state": {
+        "hole_cards": [],
+        "board_cards": [],
+        "pot_size": 500,
+        "stack_size": 25,
+        "call_amount": 20,
+        "min_raise": 40,
+        "blinds": {
+          "small": 20,
+          "big": 40
+        },
+        "active_players": 3,
+        "position": "SB",
+        "player_id": "phase21_hero",
+        "table_id": 2,
+        "hand_id": 4,
+        "tournament_id": 21
+      }
+    }
+  ]
+}
