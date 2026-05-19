@@ -24,6 +24,8 @@ def display_bot_type(player_name: str, bot_class: str = "") -> str:
         return "EquityAggressiveBot"
     if player_name.startswith("AggressiveNoEquityBot_"):
         return "AggressiveNoEquityBot"
+    if player_name.startswith("TightEquityBot_"):
+        return "TightEquityBot"
     if player_name.startswith("RandomBot_"):
         return "RandomBot"
     if player_name.startswith("CallBot_"):
@@ -37,6 +39,7 @@ def infer_bot_type_from_name(player_name: str) -> str:
         "Phase23ModelBot",
         "EquityAggressiveBot",
         "AggressiveNoEquityBot",
+        "TightEquityBot",
         "RandomBot",
         "CallBot",
         "AggressiveBot",

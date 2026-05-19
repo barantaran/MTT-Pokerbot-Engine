@@ -51,6 +51,7 @@ class ActionStatsByBotTypeTests(unittest.TestCase):
                         "results": [
                             {"name": "EquityAggressiveBot_1", "bot_class": "AggressiveBot"},
                             {"name": "AggressiveNoEquityBot_1", "bot_class": "AggressiveNoEquityBot"},
+                            {"name": "TightEquityBot_1", "bot_class": "TightEquityBot"},
                             {"name": "CallBot_1", "bot_class": "CallBot"},
                         ],
                     }
@@ -61,6 +62,7 @@ class ActionStatsByBotTypeTests(unittest.TestCase):
                 [
                     {"type": "action", "player": "EquityAggressiveBot_1", "action": "raise"},
                     {"type": "action", "player": "AggressiveNoEquityBot_1", "action": "fold"},
+                    {"type": "action", "player": "TightEquityBot_1", "action": "call"},
                     {"type": "action", "player": "CallBot_1", "action": "call"},
                     {"type": "action", "player": "CallBot_1", "action": "check"},
                 ],
@@ -69,9 +71,10 @@ class ActionStatsByBotTypeTests(unittest.TestCase):
             summary = summarize_path(root)
 
         self.assertEqual(summary["event_log_count"], 1)
-        self.assertEqual(summary["action_event_count"], 4)
+        self.assertEqual(summary["action_event_count"], 5)
         self.assertEqual(summary["action_counts_by_bot_type"]["EquityAggressiveBot"], {"raise": 1})
         self.assertEqual(summary["action_counts_by_bot_type"]["AggressiveNoEquityBot"], {"fold": 1})
+        self.assertEqual(summary["action_counts_by_bot_type"]["TightEquityBot"], {"call": 1})
         self.assertEqual(summary["action_counts_by_bot_type"]["CallBot"], {"call": 1, "check": 1})
 
     def test_format_table_includes_bot_type_totals_and_actions(self):
