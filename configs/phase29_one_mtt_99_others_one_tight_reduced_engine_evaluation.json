@@ -1,0 +1,61 @@
+{
+  "phase29_reduced_clone_engine_evaluation_id": "phase29_one_mtt_99_others_one_tight_reduced_engine_evaluation",
+  "output_dir": "runs/phase29_one_mtt_99_others_one_tight_reduced_engine_evaluation",
+  "phase28_training_report_glob": "../poker-ai-basemodel/runs/phase28_equity_imitation_training/*/equity_imitation_training_report.json",
+  "expected_phase28_training_status": "accepted",
+  "required_phase29_reduced_clone_evaluation_allowed": true,
+  "basemodel_root": "../poker-ai-basemodel",
+  "reduced_observation_size": 8,
+  "tournament_count": 10,
+  "random_seed": 2991,
+  "deterministic": true,
+  "equity_source": "treys",
+  "equity_fallback_source": "constant",
+  "equity_iterations": null,
+  "starting_stack": 1500,
+  "max_players_per_table": 9,
+  "hands_per_level": 10,
+  "max_hands_per_tournament": 600,
+  "bot_decision_timeout_ms": 500,
+  "blinds_schedule": [
+    {"small": 10, "big": 20},
+    {"small": 15, "big": 30},
+    {"small": 25, "big": 50},
+    {"small": 50, "big": 100},
+    {"small": 100, "big": 200},
+    {"small": 200, "big": 400},
+    {"small": 400, "big": 800}
+  ],
+  "payouts": {
+    "1": 0.35,
+    "2": 0.22,
+    "3": 0.16,
+    "4": 0.11,
+    "5": 0.08,
+    "6": 0.05,
+    "7": 0.03
+  },
+  "lineup": {
+    "model": 33,
+    "random": 33,
+    "equity_aggressive": 33,
+    "tight_equity": 1
+  },
+  "event_logging": {
+    "write_event_summaries": true,
+    "write_full_event_logs": false,
+    "write_full_event_logs_for_first_n": 1
+  },
+  "acceptance": {
+    "min_completed_tournaments": 10,
+    "min_model_entries": 330,
+    "max_stopped_max_hands_rate": 0.0,
+    "max_model_inference_errors": 0,
+    "max_model_timeout_fallbacks": 0,
+    "max_model_illegal_actions": 0,
+    "max_random_average_position_margin": 0.0,
+    "max_equity_average_position_gap": 10.0,
+    "min_distinct_model_actions": 1,
+    "max_single_model_action_rate": 1.0
+  }
+}
