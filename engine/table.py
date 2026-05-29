@@ -152,6 +152,7 @@ class Table:
                         "board_cards": board,
                         "pot_size": sum(p.current_bet for p in self.players) + pot_manager.get_total_amount(),
                         "stack_size": player.stack,
+                        "avg_table_stack": sum(p.stack for p in self.players) / max(1, len(self.players)),
                         "call_amount": call_amount,
                         "min_raise": min_raise,
                         "blinds": blinds,

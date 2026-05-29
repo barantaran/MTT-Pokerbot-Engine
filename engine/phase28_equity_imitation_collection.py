@@ -101,6 +101,7 @@ def _mask_as_ints(values: Iterable[Any]) -> list[int]:
 class EquityImitationCollector:
     def __init__(self, config: Dict[str, Any], *, basemodel_root: Path):
         self.schema_version = int(config.get("schema_version", SCHEMA_VERSION))
+        self.reduced_observation_schema = str(config.get("reduced_observation_schema", "reduced_v1"))
         self.dataset_path = Path(str(config["dataset_path"]))
         self.manifest_path = Path(str(config["manifest_path"]))
         self.basemodel_root = add_basemodel_to_path(basemodel_root)
@@ -112,6 +113,11 @@ class EquityImitationCollector:
         self.privacy_violations: list[str] = []
         self.action_mapping_failures: list[str] = []
         self.action_counts = {str(index): 0 for index in range(9)}
+        from poker_ai.reduced_observations import reduced_observation_contract
+
+        self.observation_size, self.observation_fields, self.encode_observation = reduced_observation_contract(
+            self.reduced_observation_schema
+        )
 
     def record_decision(
         self,
@@ -130,11 +136,10 @@ class EquityImitationCollector:
         try:
             from poker_ai.actions import ACTION_LABELS, legal_action_mask
             from poker_ai.equity_imitation import engine_action_to_action_id
-            from poker_ai.reduced_observations import REDUCED_OBSERVATION_SIZE, encode_reduced_observation
 
-            observation = _finite_floats(encode_reduced_observation(game_state))
-            if len(observation) != REDUCED_OBSERVATION_SIZE:
-                raise ValueError(f"reduced observation length is {len(observation)}, expected {REDUCED_OBSERVATION_SIZE}")
+            observation = _finite_floats(self.encode_observation(game_state))
+            if len(observation) != self.observation_size:
+                raise ValueError(f"reduced observation length is {len(observation)}, expected {self.observation_size}")
             legal_mask = _mask_as_ints(legal_action_mask(game_state))
             action_id = engine_action_to_action_id(action, game_state)
             if action_id < 0 or action_id >= len(ACTION_LABELS):
@@ -171,6 +176,7 @@ class EquityImitationCollector:
             "pot_odds": float(game_state.get("pot_odds", 0.0)),
             "equity_source": str(game_state.get("hero_equity_source", "engine_estimate_equity")),
             "reduced_observation": observation,
+            "reduced_observation_schema": self.reduced_observation_schema,
             "legal_action_mask": legal_mask,
             "action_id": int(action_id),
             "action_name": action_name,
@@ -187,6 +193,9 @@ class EquityImitationCollector:
         manifest = {
             "schema_version": self.schema_version,
             "phase": 28,
+            "reduced_observation_schema": self.reduced_observation_schema,
+            "observation_size": self.observation_size,
+            "observation_fields": list(self.observation_fields),
             "dataset_path": str(self.dataset_path),
             "sample_count": self.sample_count,
             "valid_dataset_rows": _jsonl_count(self.dataset_path),

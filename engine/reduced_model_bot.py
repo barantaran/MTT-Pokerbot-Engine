@@ -51,6 +51,7 @@ class ReducedModelEngineBot(Bot):
         equity_fallback_source: str | None = "constant",
         equity_iterations: int | None = None,
         observation_size: int = 8,
+        observation_schema: str = "reduced_v1",
         require_checkpoint: bool = True,
     ):
         super().__init__(name)
@@ -66,6 +67,7 @@ class ReducedModelEngineBot(Bot):
         self.equity_fallback_source = equity_fallback_source
         self.equity_iterations = equity_iterations
         self.observation_size = observation_size
+        self.observation_schema = observation_schema
         self.load_error = ""
         self.fallback_counts = {
             "no_model": 0,
@@ -121,9 +123,14 @@ class ReducedModelEngineBot(Bot):
         import torch
 
         from poker_ai.actions import legal_action_mask
-        from poker_ai.reduced_observations import encode_reduced_observation
+        from poker_ai.reduced_observations import reduced_observation_contract
 
-        observation = encode_reduced_observation(game_state)
+        expected_size, _fields, encoder = reduced_observation_contract(self.observation_schema)
+        if expected_size != self.observation_size:
+            raise ValueError(
+                f"observation schema {self.observation_schema} has size {expected_size}, expected {self.observation_size}"
+            )
+        observation = encoder(game_state)
         legal_mask = legal_action_mask(game_state)
         if not any(legal_mask):
             raise ValueError("game_state produced no legal actions")

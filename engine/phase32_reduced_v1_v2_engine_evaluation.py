@@ -1,4 +1,4 @@
-"""Paired engine evaluation for reduced v1 and reduced v2 checkpoints."""
+"""Paired engine evaluation for reduced checkpoints."""
 
 from __future__ import annotations
 
@@ -84,6 +84,8 @@ def _training_prerequisite(config: Dict[str, Any], *, prefix: str, engine_root: 
         "dataset_path": str(report.get("dataset_path", "")),
         "checkpoint_path": str(checkpoint) if raw_checkpoint else "",
         "checkpoint_path_from_report": raw_checkpoint,
+        "observation_size": int(report.get("observation_size", config.get(f"{prefix}_reduced_observation_size", 8)) or 8),
+        "reduced_observation_schema": str(report.get("reduced_observation_schema", config.get(f"{prefix}_reduced_observation_schema", "reduced_v1"))),
         "failures": failures,
         "passed": not failures,
         "basemodel_root": str(basemodel_root),
@@ -93,17 +95,53 @@ def _training_prerequisite(config: Dict[str, Any], *, prefix: str, engine_root: 
 def verify_prerequisites(config: Dict[str, Any], engine_root: Path) -> Dict[str, Any]:
     v1 = _training_prerequisite(config, prefix="v1", engine_root=engine_root)
     v2 = _training_prerequisite(config, prefix="v2", engine_root=engine_root)
-    failures = list(v1["failures"]) + list(v2["failures"])
+    model_prefixes = ["v1", "v2"]
+    prerequisite_by_prefix = {"v1": v1, "v2": v2}
+    lineup = dict(config.get("lineup", {}))
+    has_v3 = int(lineup.get("v3_model", 0) or 0) > 0 or any(
+        config.get(key)
+        for key in ("v3_training_report_path", "v3_training_report_glob", "v3_checkpoint_path")
+    )
+    if has_v3:
+        v3 = _training_prerequisite(config, prefix="v3", engine_root=engine_root)
+        model_prefixes.append("v3")
+        prerequisite_by_prefix["v3"] = v3
+    failures: List[str] = []
+    for prefix in model_prefixes:
+        failures.extend(prerequisite_by_prefix[prefix]["failures"])
+    basemodel_root = ""
+    for prefix in reversed(model_prefixes):
+        basemodel_root = prerequisite_by_prefix[prefix]["basemodel_root"] or basemodel_root
     return {
-        "v1": v1,
-        "v2": v2,
-        "basemodel_root": v2["basemodel_root"] or v1["basemodel_root"],
+        **prerequisite_by_prefix,
+        "model_prefixes": model_prefixes,
+        "basemodel_root": basemodel_root,
         "prerequisite_failures": failures,
         "prerequisite_passed": not failures,
     }
 
 
-def _make_reduced_bot(config: Dict[str, Any], *, checkpoint_path: str, basemodel_root: str, engine_root: Path, name: str) -> ReducedModelEngineBot:
+def _make_reduced_bot(
+    config: Dict[str, Any],
+    *,
+    prefix: str,
+    checkpoint_path: str,
+    basemodel_root: str,
+    engine_root: Path,
+    name: str,
+    prerequisite: Dict[str, Any],
+) -> ReducedModelEngineBot:
+    default_schema = "reduced_v3" if prefix == "v3" else "reduced_v1"
+    observation_schema = str(
+        config.get(f"{prefix}_reduced_observation_schema")
+        or prerequisite.get("reduced_observation_schema")
+        or default_schema
+    )
+    observation_size = int(
+        config.get(f"{prefix}_reduced_observation_size")
+        or prerequisite.get("observation_size")
+        or (9 if observation_schema == "reduced_v3" else 8)
+    )
     return ReducedModelEngineBot(
         checkpoint_path,
         basemodel_root=basemodel_root,
@@ -114,7 +152,8 @@ def _make_reduced_bot(config: Dict[str, Any], *, checkpoint_path: str, basemodel
         equity_source=str(config.get("equity_source", "pokerstove")),
         equity_fallback_source=config.get("equity_fallback_source", "constant"),
         equity_iterations=config.get("equity_iterations"),
-        observation_size=int(config.get("reduced_observation_size", 8)),
+        observation_size=observation_size,
+        observation_schema=observation_schema,
         require_checkpoint=True,
     )
 
@@ -123,31 +162,49 @@ def build_phase32_lineup(config: Dict[str, Any], prerequisite: Dict[str, Any], e
     lineup = dict(config.get("lineup", {}))
     v1_count = int(lineup.get("v1_model", 1))
     v2_count = int(lineup.get("v2_model", 1))
+    v3_count = int(lineup.get("v3_model", 0))
     patched = dict(config)
     patched_lineup = dict(lineup)
     patched_lineup["model"] = 0
     patched_lineup.pop("v1_model", None)
     patched_lineup.pop("v2_model", None)
+    patched_lineup.pop("v3_model", None)
     patched["lineup"] = patched_lineup
     bots: List[Any] = []
     for index in range(v1_count):
         bots.append(
             _make_reduced_bot(
                 config,
+                prefix="v1",
                 checkpoint_path=prerequisite["v1"]["checkpoint_path"],
                 basemodel_root=prerequisite["basemodel_root"],
                 engine_root=engine_root,
                 name=f"ReducedV1ModelBot_{index + 1}",
+                prerequisite=prerequisite["v1"],
             )
         )
     for index in range(v2_count):
         bots.append(
             _make_reduced_bot(
                 config,
+                prefix="v2",
                 checkpoint_path=prerequisite["v2"]["checkpoint_path"],
                 basemodel_root=prerequisite["basemodel_root"],
                 engine_root=engine_root,
                 name=f"ReducedV2ModelBot_{index + 1}",
+                prerequisite=prerequisite["v2"],
+            )
+        )
+    for index in range(v3_count):
+        bots.append(
+            _make_reduced_bot(
+                config,
+                prefix="v3",
+                checkpoint_path=prerequisite["v3"]["checkpoint_path"],
+                basemodel_root=prerequisite["basemodel_root"],
+                engine_root=engine_root,
+                name=f"ReducedV3ModelBot_{index + 1}",
+                prerequisite=prerequisite["v3"],
             )
         )
     bots.extend(build_lineup(patched, checkpoint_path="", basemodel_root=prerequisite["basemodel_root"]))
@@ -161,6 +218,8 @@ def _group_for_result(row: Dict[str, Any]) -> str:
         return "reduced_v1"
     if name.startswith("ReducedV2ModelBot_"):
         return "reduced_v2"
+    if name.startswith("ReducedV3ModelBot_"):
+        return "reduced_v3"
     if bot_class == "TightEquityBot":
         return "tight_equity"
     if bot_class == "AggressiveBot":
@@ -203,7 +262,7 @@ def _summarize_results(results_by_tournament: List[Dict[str, Any]]) -> Dict[str,
 
 
 def _summarize_events(tournament_id: int, events: List[Dict[str, Any]], results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    action_counts = {"reduced_v1": {}, "reduced_v2": {}}
+    action_counts = {"reduced_v1": {}, "reduced_v2": {}, "reduced_v3": {}}
     type_counts: Dict[str, int] = {}
     for event in events:
         event_type = str(event.get("type", "unknown"))
@@ -216,6 +275,8 @@ def _summarize_events(tournament_id: int, events: List[Dict[str, Any]], results:
             action_counts["reduced_v1"][action] = action_counts["reduced_v1"].get(action, 0) + 1
         if player.startswith("ReducedV2ModelBot_"):
             action_counts["reduced_v2"][action] = action_counts["reduced_v2"].get(action, 0) + 1
+        if player.startswith("ReducedV3ModelBot_"):
+            action_counts["reduced_v3"][action] = action_counts["reduced_v3"].get(action, 0) + 1
     return {
         "tournament_id": tournament_id,
         "event_count": len(events),
@@ -253,16 +314,14 @@ def run_campaign(config: Dict[str, Any], prerequisite: Dict[str, Any], engine_ro
     seed = int(config.get("random_seed", 0))
     campaign_root = Path(str(config["campaign_results_dir"]))
     bots = build_phase32_lineup(config, prerequisite, engine_root)
-    v1_bots = [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV1ModelBot_")]
-    v2_bots = [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV2ModelBot_")]
-    fallback_before = {
-        "reduced_v1": [dict(bot.fallback_counts) for bot in v1_bots],
-        "reduced_v2": [dict(bot.fallback_counts) for bot in v2_bots],
+    model_bot_groups = {
+        "reduced_v1": [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV1ModelBot_")],
+        "reduced_v2": [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV2ModelBot_")],
+        "reduced_v3": [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV3ModelBot_")],
     }
-    equity_before = {
-        "reduced_v1": [dict(bot.equity_counts) for bot in v1_bots],
-        "reduced_v2": [dict(bot.equity_counts) for bot in v2_bots],
-    }
+    model_bot_groups = {key: value for key, value in model_bot_groups.items() if value}
+    fallback_before = {group: [dict(bot.fallback_counts) for bot in group_bots] for group, group_bots in model_bot_groups.items()}
+    equity_before = {group: [dict(bot.equity_counts) for bot in group_bots] for group, group_bots in model_bot_groups.items()}
     result_rows = []
     event_summaries = []
     event_log_paths = []
@@ -291,16 +350,15 @@ def run_campaign(config: Dict[str, Any], prerequisite: Dict[str, Any], engine_ro
         "tournament_failures": failures,
         "summary": _summarize_results(result_rows),
         "action_mix_summary": {
-            "reduced_v1": _action_mix(event_summaries, "reduced_v1"),
-            "reduced_v2": _action_mix(event_summaries, "reduced_v2"),
+            group: _action_mix(event_summaries, group) for group in model_bot_groups
         },
         "bot_fallback_summary": {
-            "reduced_v1": _model_count_deltas(v1_bots, fallback_before["reduced_v1"], "fallback_counts"),
-            "reduced_v2": _model_count_deltas(v2_bots, fallback_before["reduced_v2"], "fallback_counts"),
+            group: _model_count_deltas(group_bots, fallback_before[group], "fallback_counts")
+            for group, group_bots in model_bot_groups.items()
         },
         "model_equity_summary": {
-            "reduced_v1": _model_count_deltas(v1_bots, equity_before["reduced_v1"], "equity_counts"),
-            "reduced_v2": _model_count_deltas(v2_bots, equity_before["reduced_v2"], "equity_counts"),
+            group: _model_count_deltas(group_bots, equity_before[group], "equity_counts")
+            for group, group_bots in model_bot_groups.items()
         },
     }
     _write_json(campaign_root / "tournament_results.json", result_rows)
@@ -321,21 +379,27 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
     groups = dict(summary.get("groups", {}))
     v1 = dict(groups.get("reduced_v1", {}))
     v2 = dict(groups.get("reduced_v2", {}))
+    v3 = dict(groups.get("reduced_v3", {}))
     random_group = dict(groups.get("random", {}))
-    fallback_totals = [
-        dict(campaign.get("bot_fallback_summary", {}).get(group, {}).get("totals", {})) for group in ("reduced_v1", "reduced_v2")
-    ]
-    equity_totals = [
-        dict(campaign.get("model_equity_summary", {}).get(group, {}).get("totals", {})) for group in ("reduced_v1", "reduced_v2")
-    ]
+    model_groups = ["reduced_v1", "reduced_v2"]
+    if "reduced_v3" in groups or "v3" in prerequisite:
+        model_groups.append("reduced_v3")
+    fallback_totals = [dict(campaign.get("bot_fallback_summary", {}).get(group, {}).get("totals", {})) for group in model_groups]
+    equity_totals = [dict(campaign.get("model_equity_summary", {}).get(group, {}).get("totals", {})) for group in model_groups]
     tournament_count = int(config.get("tournament_count", 0))
     stopped_rate = (int(summary.get("stopped_max_hands_count", 0)) / max(1, tournament_count))
+    require_v2_beats_random = bool(acceptance.get("require_v2_beats_random", "random" in groups))
     gates = {
         "prerequisite_gate_passed": bool(prerequisite.get("prerequisite_passed", False)),
         "campaign_runtime_gate_passed": not campaign.get("tournament_failures"),
         "completed_tournament_gate_passed": int(summary.get("completed_tournament_count", 0)) >= int(acceptance.get("min_completed_tournaments", 1)),
         "v1_entry_gate_passed": int(v1.get("entries", 0) or 0) >= int(acceptance.get("min_v1_entries", 1)),
         "v2_entry_gate_passed": int(v2.get("entries", 0) or 0) >= int(acceptance.get("min_v2_entries", 1)),
+        "v3_entry_gate_passed": (
+            int(v3.get("entries", 0) or 0) >= int(acceptance.get("min_v3_entries", 1))
+            if "reduced_v3" in model_groups
+            else True
+        ),
         "stopped_max_hands_rate_gate_passed": stopped_rate <= float(acceptance.get("max_stopped_max_hands_rate", 0.2)),
         "model_runtime_gate_passed": all(
             int(total.get(key, 0)) <= int(acceptance.get(f"max_model_{key}", 0))
@@ -345,9 +409,13 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "model_equity_fallback_gate_passed": all(
             int(total.get("fallbacks", 0)) <= int(acceptance.get("max_model_equity_fallbacks", 0)) for total in equity_totals
         ),
-        "v2_beats_random_gate_passed": v2.get("average_position") is not None
-        and random_group.get("average_position") is not None
-        and float(v2["average_position"]) <= float(random_group["average_position"]),
+        "v2_beats_random_gate_passed": (
+            v2.get("average_position") is not None
+            and random_group.get("average_position") is not None
+            and float(v2["average_position"]) <= float(random_group["average_position"])
+            if require_v2_beats_random
+            else True
+        ),
     }
     failures = list(prerequisite.get("prerequisite_failures", [])) + list(campaign.get("tournament_failures", []))
     failures.extend(f"{gate} failed" for gate, passed in gates.items() if not passed)
@@ -362,6 +430,12 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v1_total_payout_pct": v1.get("total_payout_pct"),
         "v2_total_payout_pct": v2.get("total_payout_pct"),
         "v2_minus_v1_total_payout_pct": _delta(v2, v1, "total_payout_pct"),
+        "v3_average_position": v3.get("average_position"),
+        "v3_minus_v2_average_position": _delta(v3, v2, "average_position"),
+        "v3_itm_rate": v3.get("itm_rate"),
+        "v3_minus_v2_itm_rate": _delta(v3, v2, "itm_rate"),
+        "v3_total_payout_pct": v3.get("total_payout_pct"),
+        "v3_minus_v2_total_payout_pct": _delta(v3, v2, "total_payout_pct"),
         "random_average_position": random_group.get("average_position"),
     }
     return {
@@ -382,9 +456,11 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "model_equity_summary": campaign.get("model_equity_summary", {}),
         "v1_checkpoint_path": prerequisite.get("v1", {}).get("checkpoint_path", ""),
         "v2_checkpoint_path": prerequisite.get("v2", {}).get("checkpoint_path", ""),
+        "v3_checkpoint_path": prerequisite.get("v3", {}).get("checkpoint_path", ""),
         "source_reports": {
             "v1_training_report_path": prerequisite.get("v1", {}).get("training_report_path", ""),
             "v2_training_report_path": prerequisite.get("v2", {}).get("training_report_path", ""),
+            "v3_training_report_path": prerequisite.get("v3", {}).get("training_report_path", ""),
         },
         "artifact_paths": {
             "artifact_root": str(config.get("artifact_root", "")),
