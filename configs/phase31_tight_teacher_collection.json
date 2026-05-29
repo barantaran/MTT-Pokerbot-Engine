@@ -1,0 +1,46 @@
+{
+  "phase28_equity_imitation_collection_id": "phase31_tight_teacher_collection",
+  "output_dir": "runs/phase31_tight_teacher_collection",
+  "basemodel_root": "../poker-ai-basemodel",
+  "tournament_count": 50,
+  "random_seed": 3100,
+  "starting_stack": 1500,
+  "max_players_per_table": 9,
+  "hands_per_level": 10,
+  "max_hands_per_tournament": 600,
+  "bot_decision_timeout_ms": 500,
+  "blinds_schedule": [
+    {"small": 10, "big": 20},
+    {"small": 15, "big": 30},
+    {"small": 25, "big": 50},
+    {"small": 50, "big": 100},
+    {"small": 100, "big": 200},
+    {"small": 200, "big": 400},
+    {"small": 400, "big": 800}
+  ],
+  "payouts": {
+    "1": 0.35,
+    "2": 0.22,
+    "3": 0.16,
+    "4": 0.11,
+    "5": 0.08,
+    "6": 0.05,
+    "7": 0.03
+  },
+  "teacher_mix": {
+    "tight_equity": 0.7,
+    "equity_aggressive": 0.3,
+    "model": 0.0
+  },
+  "lineup": {
+    "model": 0,
+    "tight_equity": 21,
+    "equity_aggressive": 9,
+    "random": 15,
+    "aggressive_no_equity": 0,
+    "call": 0
+  },
+  "acceptance": {
+    "min_dataset_rows": 5000
+  }
+}

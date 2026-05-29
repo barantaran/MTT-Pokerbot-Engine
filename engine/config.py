@@ -1,6 +1,7 @@
 import json
 import os
 
+
 class Config:
     def __init__(self, config_file="config.json"):
         self.config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), config_file)
@@ -17,6 +18,7 @@ class Config:
             self.max_players_per_table = data.get("max_players_per_table", 9)
             self.hands_per_level = data.get("hands_per_level", 20)
             self.blinds_schedule = data.get("blinds_schedule", [{"small": 10, "big": 20}])
+            self.max_hands_per_tournament = data.get("max_hands_per_tournament", None)
             
             # Payouts is a dictionary mapping placement -> percentage
             # We convert the keys to integers and percentages to floats

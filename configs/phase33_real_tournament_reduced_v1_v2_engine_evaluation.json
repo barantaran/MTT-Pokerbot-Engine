@@ -1,0 +1,67 @@
+{
+  "phase32_reduced_v1_v2_engine_evaluation_id": "phase33_real_tournament_reduced_v1_v2_engine_evaluation",
+  "output_dir": "runs/phase33_real_tournament_reduced_v1_v2_engine_evaluation",
+  "v1_training_report_glob": "../poker-ai-basemodel/runs/phase28_equity_imitation_training/*/equity_imitation_training_report.json",
+  "v2_training_report_glob": "../poker-ai-basemodel/runs/phase31_tight_teacher_training/*/equity_imitation_training_report.json",
+  "expected_phase28_training_status": "accepted",
+  "basemodel_root": "../poker-ai-basemodel",
+  "reduced_observation_size": 8,
+  "tournament_count": 20,
+  "random_seed": 3300,
+  "deterministic": true,
+  "equity_source": "pokerstove",
+  "equity_fallback_source": "constant",
+  "equity_iterations": null,
+  "starting_stack": 10000,
+  "max_players_per_table": 9,
+  "hands_per_level": 12,
+  "max_hands_per_tournament": 1000,
+  "bot_decision_timeout_ms": 500,
+  "blinds_schedule": [
+    {"small": 25, "big": 50},
+    {"small": 50, "big": 100},
+    {"small": 75, "big": 150},
+    {"small": 100, "big": 200},
+    {"small": 150, "big": 300},
+    {"small": 200, "big": 400},
+    {"small": 250, "big": 500},
+    {"small": 300, "big": 600},
+    {"small": 400, "big": 800},
+    {"small": 500, "big": 1000},
+    {"small": 600, "big": 1200},
+    {"small": 800, "big": 1600},
+    {"small": 1000, "big": 2000},
+    {"small": 1500, "big": 3000}
+  ],
+  "payouts": {
+    "1": 0.330,
+    "2": 0.220,
+    "3": 0.150,
+    "4": 0.100,
+    "5": 0.080,
+    "6": 0.065,
+    "7": 0.055
+  },
+  "lineup": {
+    "v1_model": 6,
+    "v2_model": 6,
+    "random": 6,
+    "equity_aggressive": 6,
+    "tight_equity": 6
+  },
+  "event_logging": {
+    "write_event_summaries": true,
+    "write_full_event_logs": false,
+    "write_full_event_logs_for_first_n": 2
+  },
+  "acceptance": {
+    "min_completed_tournaments": 18,
+    "min_v1_entries": 108,
+    "min_v2_entries": 108,
+    "max_stopped_max_hands_rate": 0.1,
+    "max_model_inference_errors": 0,
+    "max_model_timeouts": 0,
+    "max_model_illegal_actions": 0,
+    "max_model_equity_fallbacks": 0
+  }
+}

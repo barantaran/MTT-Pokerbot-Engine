@@ -257,7 +257,7 @@ def build_phase29_lineup(config: Dict[str, Any], checkpoint_path: str, basemodel
                 name=f"Phase29ReducedModelBot_{index + 1}",
                 deterministic=bool(config.get("deterministic", True)),
                 decision_timeout_ms=int(config.get("bot_decision_timeout_ms", 500)),
-                equity_source=str(config.get("equity_source", "treys")),
+                equity_source=str(config.get("equity_source", "pokerstove")),
                 equity_fallback_source=config.get("equity_fallback_source", "constant"),
                 equity_iterations=config.get("equity_iterations"),
                 observation_size=int(config.get("reduced_observation_size", 8)),
@@ -353,6 +353,7 @@ def build_report(
     random_avg = random_summary.get("average_position")
     equity_avg = equity_summary.get("average_position")
     fallback_totals = dict(campaign.get("bot_fallback_summary", {}).get("totals", {}))
+    equity_totals = dict(campaign.get("model_equity_summary", {}).get("totals", {}))
     action_mix = dict(campaign.get("action_mix_summary", {}))
     tournament_count = int(config.get("tournament_count", 0))
     stopped_rate = _rate(int(summary.get("stopped_max_hands_count", 0)), max(1, tournament_count))
@@ -369,6 +370,8 @@ def build_report(
         <= int(acceptance.get("max_model_timeout_fallbacks", 0)),
         "model_illegal_action_gate_passed": int(fallback_totals.get("illegal_actions", 0))
         <= int(acceptance.get("max_model_illegal_actions", 0)),
+        "model_equity_fallback_gate_passed": int(equity_totals.get("fallbacks", 0))
+        <= int(acceptance.get("max_model_equity_fallbacks", 0)),
         "random_baseline_available_gate_passed": random_avg is not None,
         "equity_baseline_available_gate_passed": equity_avg is not None,
         "beats_random_average_position_gate_passed": model_avg is not None
@@ -431,6 +434,9 @@ def build_report(
         "action_mix_summary": action_mix,
         "bot_fallback_summary": campaign.get("bot_fallback_summary", {}),
         "model_equity_summary": campaign.get("model_equity_summary", {}),
+        "equity_source": str(config.get("equity_source", "pokerstove")),
+        "equity_fallback_source": config.get("equity_fallback_source", "constant"),
+        "equity_iterations": config.get("equity_iterations"),
         "artifact_paths": {
             "artifact_root": str(config.get("artifact_root", "")),
             "campaign_results_dir": str(config.get("campaign_results_dir", "")),

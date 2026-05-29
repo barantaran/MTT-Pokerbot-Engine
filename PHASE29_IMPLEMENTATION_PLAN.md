@@ -2,7 +2,7 @@
 
 ## Goal
 
-Evaluate the Phase 28 reduced-observation imitation checkpoint inside real engine MTT tournaments before any promotion or fine-tuning decision.
+Evaluate the Phase 28 reduced-observation supervised clone checkpoint inside real engine MTT tournaments before any promotion or fine-tuning decision.
 
 ## Scope
 
@@ -46,4 +46,4 @@ The accepted Phase 29 run completed 10 tournaments with 30 reduced-model entries
 
 ## Next Phase
 
-Phase 30 should make a conservative reduced-clone decision. The current evidence supports larger paired evaluation or another imitation collection pass, not immediate replacement of the main promoted model.
+Phase 30 should make a conservative reduced-clone decision using PokerStove-backed reduced observations. The current evidence supports larger paired evaluation or another supervised collection pass, not immediate replacement of the main promoted model.

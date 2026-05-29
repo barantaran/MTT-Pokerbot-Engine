@@ -123,10 +123,56 @@ class Phase29ReducedCloneEngineEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["phase29_reduced_clone_engine_evaluation_status"], "accepted")
         self.assertTrue(report["phase30_reduced_clone_decision_allowed"])
+        self.assertEqual(report["equity_source"], "pokerstove")
+        self.assertTrue(report["phase29_gate_results"]["model_equity_fallback_gate_passed"])
         self.assertEqual(
             [row["bot_class"] for row in report["bot_class_stats_table"]],
             ["AggressiveBot", "CallBot", "RandomBot", "ReducedModelEngineBot"],
         )
+
+    def test_build_report_rejects_unexpected_model_equity_fallbacks(self):
+        campaign = {
+            "tournament_failures": [],
+            "lineup_summary": {"total_bots": 6},
+            "event_summaries": [],
+            "event_log_paths": [],
+            "summary": {
+                "completed_tournament_count": 2,
+                "stopped_max_hands_count": 0,
+                "model_bot_summary": {"entries": 2, "average_position": 12.0, "itm_rate": 0.1, "total_payout_pct": 0.2},
+                "placement_summary_by_bot_class": {
+                    "ReducedModelEngineBot": {"average_position": 12.0, "itm_rate": 0.1},
+                    "RandomBot": {"average_position": 20.0, "itm_rate": 0.0},
+                    "AggressiveBot": {"average_position": 10.0, "itm_rate": 0.2},
+                },
+                "payout_summary_by_bot_class": {},
+            },
+            "action_mix_summary": {"distinct_model_actions": 2, "top_model_action_rate": 0.8},
+            "bot_fallback_summary": {"totals": {"inference_errors": 0, "timeouts": 0, "illegal_actions": 0}},
+            "model_equity_summary": {"totals": {"fallbacks": 1}},
+        }
+
+        report = build_report(
+            {
+                "tournament_count": 2,
+                "equity_source": "pokerstove",
+                "equity_fallback_source": "constant",
+                "reduced_clone_engine_evaluation_report_path": "report.json",
+                "acceptance": {
+                    "min_completed_tournaments": 2,
+                    "min_model_entries": 2,
+                    "max_equity_average_position_gap": 3.0,
+                    "max_model_equity_fallbacks": 0,
+                },
+            },
+            {"prerequisite_passed": True, "prerequisite_failures": []},
+            campaign,
+            "2026-05-15T00:00:00+00:00",
+            0.1,
+        )
+
+        self.assertEqual(report["phase29_reduced_clone_engine_evaluation_status"], "rejected")
+        self.assertFalse(report["phase29_gate_results"]["model_equity_fallback_gate_passed"])
 
     def test_run_phase29_rejects_missing_checkpoint_before_simulation(self):
         with tempfile.TemporaryDirectory() as tmp:

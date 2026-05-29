@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from engine.phase28_equity_imitation_collection import EquityImitationCollector
+from engine.phase28_equity_imitation_collection import CollectingTeacherBot, EquityImitationCollector, build_phase28_lineup
 
 
 class Phase28EquityImitationCollectionTests(unittest.TestCase):
@@ -43,6 +43,33 @@ class Phase28EquityImitationCollectionTests(unittest.TestCase):
             self.assertEqual(len(rows[0]["legal_action_mask"]), 9)
             self.assertFalse(rows[0]["fallback_used"])
             self.assertTrue(collector.validation_summary()["valid"])
+
+    def test_phase31_teacher_lineup_collects_tight_and_aggressive_but_not_model(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            collector = EquityImitationCollector(
+                {
+                    "dataset_path": str(root / "dataset.jsonl"),
+                    "manifest_path": str(root / "manifest.json"),
+                },
+                basemodel_root=Path(__file__).resolve().parents[2] / "poker-ai-basemodel",
+            )
+
+            bots = build_phase28_lineup(
+                {
+                    "lineup": {
+                        "model": 0,
+                        "tight_equity": 2,
+                        "equity_aggressive": 1,
+                        "random": 1,
+                    }
+                },
+                collector,
+            )
+
+            collecting_bots = [bot for bot in bots if isinstance(bot, CollectingTeacherBot)]
+            self.assertEqual([bot.bot_type for bot in collecting_bots], ["tight_equity", "tight_equity", "equity_aggressive"])
+            self.assertFalse(any(bot.bot_type == "model" for bot in collecting_bots))
 
 
 if __name__ == "__main__":

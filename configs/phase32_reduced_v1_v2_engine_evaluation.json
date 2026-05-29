@@ -1,13 +1,13 @@
 {
-  "phase29_reduced_clone_engine_evaluation_id": "phase29_equal_style_reduced_clone_engine_evaluation",
-  "output_dir": "runs/phase29_equal_style_reduced_clone_engine_evaluation",
-  "phase28_training_report_glob": "../poker-ai-basemodel/runs/phase28_equity_imitation_training/*/equity_imitation_training_report.json",
+  "phase32_reduced_v1_v2_engine_evaluation_id": "phase32_reduced_v1_v2_engine_evaluation",
+  "output_dir": "runs/phase32_reduced_v1_v2_engine_evaluation",
+  "v1_training_report_glob": "../poker-ai-basemodel/runs/phase28_equity_imitation_training/*/equity_imitation_training_report.json",
+  "v2_training_report_glob": "../poker-ai-basemodel/runs/phase31_tight_teacher_training/*/equity_imitation_training_report.json",
   "expected_phase28_training_status": "accepted",
-  "required_phase29_reduced_clone_evaluation_allowed": true,
   "basemodel_root": "../poker-ai-basemodel",
   "reduced_observation_size": 8,
-  "tournament_count": 10,
-  "random_seed": 2910,
+  "tournament_count": 50,
+  "random_seed": 3200,
   "deterministic": true,
   "equity_source": "pokerstove",
   "equity_fallback_source": "constant",
@@ -36,27 +36,25 @@
     "7": 0.03
   },
   "lineup": {
-    "model": 9,
-    "random": 9,
-    "equity_aggressive": 9,
-    "tight_equity": 9
+    "v1_model": 6,
+    "v2_model": 6,
+    "random": 6,
+    "equity_aggressive": 6,
+    "tight_equity": 6
   },
   "event_logging": {
     "write_event_summaries": true,
     "write_full_event_logs": false,
-    "write_full_event_logs_for_first_n": 1
+    "write_full_event_logs_for_first_n": 3
   },
   "acceptance": {
-    "min_completed_tournaments": 8,
-    "min_model_entries": 72,
-    "max_stopped_max_hands_rate": 0.2,
+    "min_completed_tournaments": 45,
+    "min_v1_entries": 270,
+    "min_v2_entries": 270,
+    "max_stopped_max_hands_rate": 0.1,
     "max_model_inference_errors": 0,
-    "max_model_timeout_fallbacks": 0,
+    "max_model_timeouts": 0,
     "max_model_illegal_actions": 0,
-    "max_model_equity_fallbacks": 0,
-    "max_random_average_position_margin": 0.0,
-    "max_equity_average_position_gap": 10.0,
-    "min_distinct_model_actions": 1,
-    "max_single_model_action_rate": 1.0
+    "max_model_equity_fallbacks": 0
   }
 }

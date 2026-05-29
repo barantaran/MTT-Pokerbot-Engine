@@ -91,8 +91,10 @@ There is a file called `config.json`. You can open this in Notepad or any text e
 
 It controls everything about the simulation:
 *   `simulation_count`: E.g., `100`. The engine will blast through 100 complete tournaments in parallel!
-*   `starting_stack`: E.g., `1500`. Chips everybody starts with.
-*   `blinds_schedule`: You can edit exactly what the blinds are.
+*   `starting_stack`: E.g., `10000`. Chips everybody starts with.
+*   `hands_per_level`: Number of hands before the next level. This approximates timed live levels in deterministic simulations.
+*   `max_hands_per_tournament`: Safety cap for bounded runs.
+*   `blinds_schedule`: You can edit each level as `{"small": 100, "big": 200}`.
 *   `bot_decision_timeout_ms`: The 500ms limit!
 *   `payouts`: Set the percentages. `"1": 0.50` means 1st place gets 50% of the prize pool!
 
@@ -217,7 +219,7 @@ Command from the workspace root:
 
 Expected result: the command reads the latest accepted Phase 25 report, runs source and candidate checkpoints with the same deterministic seeds and lineup, writes per-campaign results under `runs/phase26_engine_retraining_evaluation/<run>/campaigns/`, and writes `engine_retraining_evaluation_report.json`. Phase 27 promotion decision work should start only when the report says `phase26_engine_retraining_evaluation_status: accepted` and `phase27_promotion_decision_allowed: true`.
 
-Phase 29 evaluates the Phase 28 reduced-observation imitation checkpoint through `engine/reduced_model_bot.py`. It is an evaluation phase only; it does not replace the 62-feature model bot or promote the reduced checkpoint.
+Phase 29 evaluates the Phase 28 reduced-observation supervised clone checkpoint through `engine/reduced_model_bot.py`. It is an evaluation phase only; it does not replace the 62-feature model bot or promote the reduced checkpoint. The reduced adapter now prefers PokerStove-backed equity and reports any fallback use.
 
 Command from this directory:
 
@@ -231,7 +233,7 @@ Command from the workspace root:
 ./scripts/phase29_reduced_clone_engine_evaluation.sh
 ```
 
-Expected result: the command reads the latest accepted Phase 28 imitation-training report, loads the reduced checkpoint with `observation_size=8`, runs a mixed-opponent MTT evaluation, and writes `runs/phase29_reduced_clone_engine_evaluation/<run>/reduced_clone_engine_evaluation_report.json`. Phase 30 should start only when the report says `phase29_reduced_clone_engine_evaluation_status: accepted` and `phase30_reduced_clone_decision_allowed: true`.
+Expected result: the command reads the latest accepted Phase 28 training report, loads the reduced checkpoint with `observation_size=8`, runs a PokerStove-backed mixed-opponent MTT evaluation, and writes `runs/phase29_reduced_clone_engine_evaluation/<run>/reduced_clone_engine_evaluation_report.json`. Phase 30 should start only when the report says `phase29_reduced_clone_engine_evaluation_status: accepted` and `phase30_reduced_clone_decision_allowed: true`.
 
 ---
 

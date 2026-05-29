@@ -47,7 +47,7 @@ class ReducedModelEngineBot(Bot):
         name: str = "ReducedModelEngineBot",
         deterministic: bool = True,
         decision_timeout_ms: int | None = None,
-        equity_source: str = "treys",
+        equity_source: str = "pokerstove",
         equity_fallback_source: str | None = "constant",
         equity_iterations: int | None = None,
         observation_size: int = 8,

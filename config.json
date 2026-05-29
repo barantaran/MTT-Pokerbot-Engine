@@ -1,25 +1,33 @@
 {
   "simulation_count": 1,
   "bot_decision_timeout_ms": 500,
-  "starting_stack": 1500,
+  "starting_stack": 10000,
   "max_players_per_table": 9,
-  "hands_per_level": 20,
+  "hands_per_level": 12,
+  "max_hands_per_tournament": 1000,
   "blinds_schedule": [
-    {"small": 10, "big": 20},
-    {"small": 15, "big": 30},
     {"small": 25, "big": 50},
     {"small": 50, "big": 100},
+    {"small": 75, "big": 150},
     {"small": 100, "big": 200},
+    {"small": 150, "big": 300},
     {"small": 200, "big": 400},
+    {"small": 250, "big": 500},
     {"small": 300, "big": 600},
+    {"small": 400, "big": 800},
     {"small": 500, "big": 1000},
+    {"small": 600, "big": 1200},
+    {"small": 800, "big": 1600},
     {"small": 1000, "big": 2000},
-    {"small": 2000, "big": 4000},
-    {"small": 5000, "big": 10000}
+    {"small": 1500, "big": 3000}
   ],
   "payouts": {
-    "1": 0.50,
-    "2": 0.30,
-    "3": 0.20
+    "1": 0.330,
+    "2": 0.220,
+    "3": 0.150,
+    "4": 0.100,
+    "5": 0.080,
+    "6": 0.065,
+    "7": 0.055
   }
 }

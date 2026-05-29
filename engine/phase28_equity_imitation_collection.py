@@ -1,4 +1,4 @@
-"""Phase 28 collection of equity-bot imitation samples."""
+"""Phase 28 collection of equity-bot supervised policy labels."""
 
 from __future__ import annotations
 
@@ -26,8 +26,10 @@ from engine.phase22_small_mtt_engine_simulation import (
 )
 from engine.phase23_larger_mtt_engine_simulation import summarize_events, summarize_results
 from engine.pokerstove_equity import estimate_equity, pot_odds
+from engine.player_interface import Bot
 from engine.tournament import Tournament
 from players.aggressive_bot import AggressiveBot
+from players.tight_equity_bot import TightEquityBot
 
 
 SCHEMA_VERSION = 1
@@ -116,6 +118,7 @@ class EquityImitationCollector:
         *,
         game_state: Dict[str, Any],
         action: Tuple[str, int | None],
+        bot_type: str = "equity_aggressive",
         fallback_used: bool = False,
         fallback_reason: str | None = None,
     ) -> None:
@@ -156,7 +159,7 @@ class EquityImitationCollector:
             "table_id": int(game_state.get("table_id", 0) or 0),
             "decision_index": sample_index,
             "player_name": str(game_state.get("player_id", "")),
-            "bot_type": "equity_aggressive",
+            "bot_type": bot_type,
             "street": _street_from_board(game_state.get("board_cards", [])),
             "small_blind": int(blinds.get("small", 0) or 0),
             "big_blind": int(blinds.get("big", 0) or 0),
@@ -213,11 +216,20 @@ class EquityImitationCollector:
         }
 
 
-class CollectingEquityAggressiveBot(AggressiveBot):
-    def __init__(self, *, collector: EquityImitationCollector, name: str = "CollectingEquityAggressiveBot"):
-        super().__init__()
+class CollectingTeacherBot(Bot):
+    def __init__(
+        self,
+        *,
+        teacher: Bot,
+        collector: EquityImitationCollector,
+        bot_type: str,
+        name: str,
+    ):
+        super().__init__(name)
+        self.teacher = teacher
         self.name = name
         self.collector = collector
+        self.bot_type = bot_type
 
     def get_action(self, game_state: Dict[str, Any]):
         enriched = dict(game_state)
@@ -228,15 +240,16 @@ class CollectingEquityAggressiveBot(AggressiveBot):
                 active_players=int(enriched.get("active_players", 2) or 2),
             )
             enriched["hero_equity"] = float(equity)
-            enriched["hero_equity_source"] = "engine_estimate_equity"
+            enriched["hero_equity_source"] = "pokerstove"
             enriched["pot_odds"] = pot_odds(int(enriched.get("call_amount", 0) or 0), int(enriched.get("pot_size", 0) or 0))
-            action = super().get_action(enriched)
-            self.collector.record_decision(game_state=enriched, action=action)
+            action = self.teacher.get_action(enriched)
+            self.collector.record_decision(game_state=enriched, action=action, bot_type=self.bot_type)
             return action
         except Exception as exc:
             self.collector.record_decision(
                 game_state=enriched,
                 action=("call", 0) if int(enriched.get("call_amount", 0) or 0) == 0 else ("fold", 0),
+                bot_type=self.bot_type,
                 fallback_used=True,
                 fallback_reason=str(exc),
             )
@@ -247,12 +260,29 @@ def build_phase28_lineup(config: Dict[str, Any], collector: EquityImitationColle
     patched = dict(config)
     patched_lineup = dict(config.get("lineup", {}))
     equity_count = int(patched_lineup.get("equity_aggressive", 1))
+    tight_count = int(patched_lineup.get("tight_equity", 0))
     patched_lineup["equity_aggressive"] = 0
+    patched_lineup["tight_equity"] = 0
     patched["lineup"] = patched_lineup
-    bots: List[Any] = [
-        CollectingEquityAggressiveBot(collector=collector, name=f"CollectingEquityAggressiveBot_{index + 1}")
-        for index in range(equity_count)
-    ]
+    bots: List[Any] = []
+    for index in range(tight_count):
+        bots.append(
+            CollectingTeacherBot(
+                teacher=TightEquityBot(),
+                collector=collector,
+                bot_type="tight_equity",
+                name=f"CollectingTightEquityBot_{index + 1}",
+            )
+        )
+    for index in range(equity_count):
+        bots.append(
+            CollectingTeacherBot(
+                teacher=AggressiveBot(),
+                collector=collector,
+                bot_type="equity_aggressive",
+                name=f"CollectingEquityAggressiveBot_{index + 1}",
+            )
+        )
     bots.extend(build_lineup(patched, checkpoint_path="", basemodel_root=""))
     return bots
 
