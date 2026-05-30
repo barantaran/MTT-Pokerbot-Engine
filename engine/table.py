@@ -18,6 +18,9 @@ class Table:
         self.players: List[PlayerState] = []
         self.button_idx = 0
         self.evaluator = Evaluator()
+        self.starting_field = 0
+        self.players_left = 0
+        self.paid_places = 0
 
     def add_player(self, player: PlayerState):
         self.players.append(player)
@@ -157,6 +160,10 @@ class Table:
                         "min_raise": min_raise,
                         "blinds": blinds,
                         "active_players": self._active_players_count(),
+                        "players_left": self.players_left or len(self.players),
+                        "starting_field": self.starting_field or len(self.players),
+                        "paid_places": self.paid_places,
+                        "itm_distance": max(0.0, ((self.players_left or len(self.players)) - self.paid_places) / max(1, (self.starting_field or len(self.players)) - self.paid_places)) if self.paid_places else 1.0,
                         "player_id": player.name,
                         "table_id": self.table_id,
                         "hand_id": self.hand_id,

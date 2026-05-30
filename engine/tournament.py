@@ -10,6 +10,8 @@ class Tournament:
     """
     def __init__(self, bots: List[Any], tournament_id: int = 0):
         self.tournament_id = tournament_id
+        self.starting_field = len(bots)
+        self.paid_places = len(config.payouts)
         self.players = [PlayerState(bot, config.starting_stack) for bot in bots]
         self.tables: List[Table] = []
         self.placements: List[PlayerState] = []
@@ -36,6 +38,8 @@ class Tournament:
         for i in range(0, len(self.players), max_p):
             table_players = self.players[i:i+max_p]
             table = Table(table_id, tournament_id=self.tournament_id)
+            table.starting_field = self.starting_field
+            table.paid_places = self.paid_places
             for p in table_players:
                 table.add_player(p)
                 self.events.append({"type": "seat", "player": p.name, "table_id": table_id})
@@ -99,7 +103,11 @@ class Tournament:
             blinds = config.blinds_schedule[self.current_blind_idx]
             
             # Play one hand on all active tables
+            players_left = sum(len(t.players) for t in self.tables)
             for table in self.tables:
+                table.starting_field = self.starting_field
+                table.paid_places = self.paid_places
+                table.players_left = players_left
                 busted, table_events = table.play_hand(blinds)
                 self.events.extend(table_events)
                 

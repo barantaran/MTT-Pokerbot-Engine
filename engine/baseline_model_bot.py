@@ -26,6 +26,7 @@ FORBIDDEN_STATE_KEYS = {
 
 ALLOWED_STATE_KEYS = {
     "active_players",
+    "avg_table_stack",
     "blinds",
     "board_cards",
     "call_amount",
@@ -41,10 +42,13 @@ ALLOWED_STATE_KEYS = {
     "opp_last_action_id",
     "opponent_range_pct",
     "opponent_stacks",
+    "paid_places",
     "player_id",
+    "players_left",
     "position",
     "pot_size",
     "stack_size",
+    "starting_field",
     "table_id",
     "tournament_id",
     "bb_per_avg_stack",

@@ -1,0 +1,54 @@
+{
+  "phase28_equity_imitation_collection_id": "phase35_reduced_v4_tight_teacher_collection",
+  "output_dir": "runs/phase35_reduced_v4_tight_teacher_collection",
+  "basemodel_root": "../poker-ai-basemodel",
+  "reduced_observation_schema": "reduced_v4",
+  "tournament_count": 50,
+  "random_seed": 3510,
+  "starting_stack": 10000,
+  "max_players_per_table": 9,
+  "hands_per_level": 12,
+  "max_hands_per_tournament": 1000,
+  "bot_decision_timeout_ms": 500,
+  "blinds_schedule": [
+    {"small": 25, "big": 50},
+    {"small": 50, "big": 100},
+    {"small": 75, "big": 150},
+    {"small": 100, "big": 200},
+    {"small": 150, "big": 300},
+    {"small": 200, "big": 400},
+    {"small": 250, "big": 500},
+    {"small": 300, "big": 600},
+    {"small": 400, "big": 800},
+    {"small": 500, "big": 1000},
+    {"small": 600, "big": 1200},
+    {"small": 800, "big": 1600},
+    {"small": 1000, "big": 2000},
+    {"small": 1500, "big": 3000}
+  ],
+  "payouts": {
+    "1": 0.330,
+    "2": 0.220,
+    "3": 0.150,
+    "4": 0.100,
+    "5": 0.080,
+    "6": 0.065,
+    "7": 0.055
+  },
+  "teacher_mix": {
+    "tight_equity": 1.0,
+    "equity_aggressive": 0.0,
+    "model": 0.0
+  },
+  "lineup": {
+    "model": 0,
+    "tight_equity": 30,
+    "equity_aggressive": 0,
+    "random": 0,
+    "aggressive_no_equity": 0,
+    "call": 0
+  },
+  "acceptance": {
+    "min_dataset_rows": 5000
+  }
+}
