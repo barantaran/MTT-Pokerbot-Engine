@@ -98,6 +98,21 @@ It controls everything about the simulation:
 *   `bot_decision_timeout_ms`: The 500ms limit!
 *   `payouts`: Set the percentages. `"1": 0.50` means 1st place gets 50% of the prize pool!
 
+### Blind Level Speed
+
+The engine advances blind levels by completed hand count, not by wall-clock minutes. This keeps simulations deterministic and fast, but it means `hands_per_level` is an approximation of real online MTT blind timers.
+
+A reasonable 9-max online pace assumption is roughly 55-70 hands per hour while tables are full. With that assumption, these presets are useful starting points:
+
+| Structure | Approx real level time | Suggested `hands_per_level` |
+| --- | ---: | ---: |
+| Hyper | 2-3 minutes | 3 |
+| Turbo | 4-6 minutes | 6 |
+| Regular | 8-10 minutes | 10 |
+| Slow / deep | 12-15 minutes | 15 |
+
+For example, `hands_per_level: 12` is closer to a regular-to-slow structure than a turbo structure. Use the same value across comparison runs when testing bot strength, and only change it intentionally when comparing performance across tournament speeds.
+
 ---
 
 ## Step 5: Run Simulation
