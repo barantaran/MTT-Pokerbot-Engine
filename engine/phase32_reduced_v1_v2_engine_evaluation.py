@@ -306,9 +306,6 @@ def _summarize_results(results_by_tournament: List[Dict[str, Any]], *, final_tab
         summary["final_table_rate"] = summary["final_table"] / entries
         summary["itm_rate"] = summary["itm"] / entries
         summary["average_payout_pct"] = summary["total_payout_pct"] / entries
-        # Buy-ins are not modeled in this simulator report yet, so average payout
-        # per entry is the stable ROI-ranking proxy.
-        summary["roi_proxy"] = summary["average_payout_pct"]
     return {"completed_tournament_count": completed, "stopped_max_hands_count": stopped, "groups": groups}
 
 
@@ -503,9 +500,6 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v1_total_payout_pct": v1.get("total_payout_pct"),
         "v2_total_payout_pct": v2.get("total_payout_pct"),
         "v2_minus_v1_total_payout_pct": _delta(v2, v1, "total_payout_pct"),
-        "v1_roi_proxy": v1.get("roi_proxy"),
-        "v2_roi_proxy": v2.get("roi_proxy"),
-        "v2_minus_v1_roi_proxy": _delta(v2, v1, "roi_proxy"),
         "v1_final_table_rate": v1.get("final_table_rate"),
         "v2_final_table_rate": v2.get("final_table_rate"),
         "v2_minus_v1_final_table_rate": _delta(v2, v1, "final_table_rate"),
@@ -515,8 +509,6 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v3_minus_v2_itm_rate": _delta(v3, v2, "itm_rate"),
         "v3_total_payout_pct": v3.get("total_payout_pct"),
         "v3_minus_v2_total_payout_pct": _delta(v3, v2, "total_payout_pct"),
-        "v3_roi_proxy": v3.get("roi_proxy"),
-        "v3_minus_v2_roi_proxy": _delta(v3, v2, "roi_proxy"),
         "v3_final_table_rate": v3.get("final_table_rate"),
         "v3_minus_v2_final_table_rate": _delta(v3, v2, "final_table_rate"),
         "v4_average_position": v4.get("average_position"),
@@ -525,8 +517,6 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v4_minus_v3_itm_rate": _delta(v4, v3, "itm_rate"),
         "v4_total_payout_pct": v4.get("total_payout_pct"),
         "v4_minus_v3_total_payout_pct": _delta(v4, v3, "total_payout_pct"),
-        "v4_roi_proxy": v4.get("roi_proxy"),
-        "v4_minus_v3_roi_proxy": _delta(v4, v3, "roi_proxy"),
         "v4_final_table_rate": v4.get("final_table_rate"),
         "v4_minus_v3_final_table_rate": _delta(v4, v3, "final_table_rate"),
         "v5_average_position": v5.get("average_position"),
@@ -535,8 +525,6 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v5_minus_v4_itm_rate": _delta(v5, v4, "itm_rate"),
         "v5_total_payout_pct": v5.get("total_payout_pct"),
         "v5_minus_v4_total_payout_pct": _delta(v5, v4, "total_payout_pct"),
-        "v5_roi_proxy": v5.get("roi_proxy"),
-        "v5_minus_v4_roi_proxy": _delta(v5, v4, "roi_proxy"),
         "v5_final_table_rate": v5.get("final_table_rate"),
         "v5_minus_v4_final_table_rate": _delta(v5, v4, "final_table_rate"),
         "random_average_position": random_group.get("average_position"),

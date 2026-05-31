@@ -115,7 +115,7 @@ For example, `hands_per_level: 12` is about a 9.3-minute level at this pace, so 
 
 ### Evaluation Metric Priority
 
-For MTT model comparison, prefer ROI-style payout performance over survival-only metrics. The current reports do not model buy-ins directly, so `roi_proxy` is `average_payout_pct` per entry. Use `final_table_rate` as the main secondary metric. `itm_rate` and `average_position` are still useful diagnostics, but they should not drive promotion by themselves because they can reward min-cashing or shallow survival instead of top-heavy payout conversion.
+For MTT model comparison, prioritize 1st-place conversion and final-table access over survival-only metrics. Use `win_rate` and `wins` as the primary signal, `final_table_rate` as the main secondary signal, and `average_payout_pct` as payout context. `itm_rate` and `average_position` are still useful diagnostics, but they should not drive promotion by themselves because they can reward min-cashing or shallow survival instead of top-heavy conversion.
 
 ---
 

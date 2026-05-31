@@ -8,7 +8,7 @@ from engine.phase22_small_mtt_engine_simulation import _read_json
 
 
 class Phase32ReducedV1V2EngineEvaluationTests(unittest.TestCase):
-    def test_summary_reports_roi_proxy_and_final_table_rate(self):
+    def test_summary_reports_final_table_rate_and_average_payout(self):
         summary = _summarize_results(
             [
                 {
@@ -27,7 +27,6 @@ class Phase32ReducedV1V2EngineEvaluationTests(unittest.TestCase):
         self.assertEqual(v4["final_table"], 2)
         self.assertEqual(v4["final_table_rate"], 1.0)
         self.assertAlmostEqual(v4["average_payout_pct"], 0.265)
-        self.assertAlmostEqual(v4["roi_proxy"], v4["average_payout_pct"])
         self.assertEqual(v5["final_table"], 0)
         self.assertEqual(v5["final_table_rate"], 0.0)
 
