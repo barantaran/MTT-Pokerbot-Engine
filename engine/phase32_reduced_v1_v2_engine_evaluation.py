@@ -266,10 +266,11 @@ def _group_for_result(row: Dict[str, Any]) -> str:
     return bot_class
 
 
-def _summarize_results(results_by_tournament: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _summarize_results(results_by_tournament: List[Dict[str, Any]], *, final_table_size: int = 9) -> Dict[str, Any]:
     groups: Dict[str, Dict[str, Any]] = {}
     completed = 0
     stopped = 0
+    final_table_size = max(1, int(final_table_size or 9))
     for tournament in results_by_tournament:
         results = list(tournament.get("results", []))
         completed += 1 if results else 0
@@ -280,12 +281,21 @@ def _summarize_results(results_by_tournament: List[Dict[str, Any]]) -> Dict[str,
             payout = float(row.get("payout_pct", 0.0) or 0.0)
             summary = groups.setdefault(
                 group,
-                {"entries": 0, "position_sum": 0.0, "wins": 0, "top_3": 0, "itm": 0, "total_payout_pct": 0.0},
+                {
+                    "entries": 0,
+                    "position_sum": 0.0,
+                    "wins": 0,
+                    "top_3": 0,
+                    "final_table": 0,
+                    "itm": 0,
+                    "total_payout_pct": 0.0,
+                },
             )
             summary["entries"] += 1
             summary["position_sum"] += position
             summary["wins"] += 1 if position == 1 else 0
             summary["top_3"] += 1 if 0 < position <= 3 else 0
+            summary["final_table"] += 1 if 0 < position <= final_table_size else 0
             summary["itm"] += 1 if payout > 0 else 0
             summary["total_payout_pct"] += payout
     for summary in groups.values():
@@ -293,8 +303,12 @@ def _summarize_results(results_by_tournament: List[Dict[str, Any]]) -> Dict[str,
         summary["average_position"] = summary["position_sum"] / entries
         summary["win_rate"] = summary["wins"] / entries
         summary["top_3_rate"] = summary["top_3"] / entries
+        summary["final_table_rate"] = summary["final_table"] / entries
         summary["itm_rate"] = summary["itm"] / entries
         summary["average_payout_pct"] = summary["total_payout_pct"] / entries
+        # Buy-ins are not modeled in this simulator report yet, so average payout
+        # per entry is the stable ROI-ranking proxy.
+        summary["roi_proxy"] = summary["average_payout_pct"]
     return {"completed_tournament_count": completed, "stopped_max_hands_count": stopped, "groups": groups}
 
 
@@ -391,7 +405,10 @@ def run_campaign(config: Dict[str, Any], prerequisite: Dict[str, Any], engine_ro
         "event_summaries": event_summaries,
         "event_log_paths": event_log_paths,
         "tournament_failures": failures,
-        "summary": _summarize_results(result_rows),
+        "summary": _summarize_results(
+            result_rows,
+            final_table_size=int(config.get("final_table_size", config.get("max_players_per_table", 9)) or 9),
+        ),
         "action_mix_summary": {
             group: _action_mix(event_summaries, group) for group in model_bot_groups
         },
@@ -486,24 +503,42 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v1_total_payout_pct": v1.get("total_payout_pct"),
         "v2_total_payout_pct": v2.get("total_payout_pct"),
         "v2_minus_v1_total_payout_pct": _delta(v2, v1, "total_payout_pct"),
+        "v1_roi_proxy": v1.get("roi_proxy"),
+        "v2_roi_proxy": v2.get("roi_proxy"),
+        "v2_minus_v1_roi_proxy": _delta(v2, v1, "roi_proxy"),
+        "v1_final_table_rate": v1.get("final_table_rate"),
+        "v2_final_table_rate": v2.get("final_table_rate"),
+        "v2_minus_v1_final_table_rate": _delta(v2, v1, "final_table_rate"),
         "v3_average_position": v3.get("average_position"),
         "v3_minus_v2_average_position": _delta(v3, v2, "average_position"),
         "v3_itm_rate": v3.get("itm_rate"),
         "v3_minus_v2_itm_rate": _delta(v3, v2, "itm_rate"),
         "v3_total_payout_pct": v3.get("total_payout_pct"),
         "v3_minus_v2_total_payout_pct": _delta(v3, v2, "total_payout_pct"),
+        "v3_roi_proxy": v3.get("roi_proxy"),
+        "v3_minus_v2_roi_proxy": _delta(v3, v2, "roi_proxy"),
+        "v3_final_table_rate": v3.get("final_table_rate"),
+        "v3_minus_v2_final_table_rate": _delta(v3, v2, "final_table_rate"),
         "v4_average_position": v4.get("average_position"),
         "v4_minus_v3_average_position": _delta(v4, v3, "average_position"),
         "v4_itm_rate": v4.get("itm_rate"),
         "v4_minus_v3_itm_rate": _delta(v4, v3, "itm_rate"),
         "v4_total_payout_pct": v4.get("total_payout_pct"),
         "v4_minus_v3_total_payout_pct": _delta(v4, v3, "total_payout_pct"),
+        "v4_roi_proxy": v4.get("roi_proxy"),
+        "v4_minus_v3_roi_proxy": _delta(v4, v3, "roi_proxy"),
+        "v4_final_table_rate": v4.get("final_table_rate"),
+        "v4_minus_v3_final_table_rate": _delta(v4, v3, "final_table_rate"),
         "v5_average_position": v5.get("average_position"),
         "v5_minus_v4_average_position": _delta(v5, v4, "average_position"),
         "v5_itm_rate": v5.get("itm_rate"),
         "v5_minus_v4_itm_rate": _delta(v5, v4, "itm_rate"),
         "v5_total_payout_pct": v5.get("total_payout_pct"),
         "v5_minus_v4_total_payout_pct": _delta(v5, v4, "total_payout_pct"),
+        "v5_roi_proxy": v5.get("roi_proxy"),
+        "v5_minus_v4_roi_proxy": _delta(v5, v4, "roi_proxy"),
+        "v5_final_table_rate": v5.get("final_table_rate"),
+        "v5_minus_v4_final_table_rate": _delta(v5, v4, "final_table_rate"),
         "random_average_position": random_group.get("average_position"),
     }
     return {

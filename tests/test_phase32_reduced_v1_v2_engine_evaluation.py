@@ -3,11 +3,34 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from engine.phase32_reduced_v1_v2_engine_evaluation import build_report
+from engine.phase32_reduced_v1_v2_engine_evaluation import _summarize_results, build_report
 from engine.phase22_small_mtt_engine_simulation import _read_json
 
 
 class Phase32ReducedV1V2EngineEvaluationTests(unittest.TestCase):
+    def test_summary_reports_roi_proxy_and_final_table_rate(self):
+        summary = _summarize_results(
+            [
+                {
+                    "results": [
+                        {"position": 1, "bot_class": "ReducedV4ModelBot", "name": "ReducedV4ModelBot_1", "payout_pct": 0.5},
+                        {"position": 9, "bot_class": "ReducedV4ModelBot", "name": "ReducedV4ModelBot_2", "payout_pct": 0.03},
+                        {"position": 10, "bot_class": "ReducedV5ModelBot", "name": "ReducedV5ModelBot_1", "payout_pct": 0.0},
+                    ]
+                }
+            ],
+            final_table_size=9,
+        )
+
+        v4 = summary["groups"]["reduced_v4"]
+        v5 = summary["groups"]["reduced_v5"]
+        self.assertEqual(v4["final_table"], 2)
+        self.assertEqual(v4["final_table_rate"], 1.0)
+        self.assertAlmostEqual(v4["average_payout_pct"], 0.265)
+        self.assertAlmostEqual(v4["roi_proxy"], v4["average_payout_pct"])
+        self.assertEqual(v5["final_table"], 0)
+        self.assertEqual(v5["final_table_rate"], 0.0)
+
     def test_build_report_accepts_clean_v2_that_beats_random(self):
         report = build_report(
             {
