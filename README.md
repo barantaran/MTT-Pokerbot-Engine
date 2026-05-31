@@ -102,16 +102,16 @@ It controls everything about the simulation:
 
 The engine advances blind levels by completed hand count, not by wall-clock minutes. This keeps simulations deterministic and fast, but it means `hands_per_level` is an approximation of real online MTT blind timers.
 
-A reasonable 9-max online pace assumption is roughly 55-70 hands per hour while tables are full. With that assumption, these presets are useful starting points:
+A reasonable fast 9-max online MTT pace assumption is roughly 77 hands per hour while tables are full, or about 1.28 hands per minute. With that assumption, these presets use common blind-clock steps:
 
 | Structure | Approx real level time | Suggested `hands_per_level` |
 | --- | ---: | ---: |
-| Hyper | 2-3 minutes | 3 |
-| Turbo | 4-6 minutes | 6 |
-| Regular | 8-10 minutes | 10 |
-| Slow / deep | 12-15 minutes | 15 |
+| Hyper | 3 minutes | 4 |
+| Turbo | 5 minutes | 6 |
+| Regular | 10 minutes | 13 |
+| Slow / deep | 15 minutes | 19 |
 
-For example, `hands_per_level: 12` is closer to a regular-to-slow structure than a turbo structure. Use the same value across comparison runs when testing bot strength, and only change it intentionally when comparing performance across tournament speeds.
+For example, `hands_per_level: 12` is about a 9.3-minute level at this pace, so it is much closer to regular than turbo. Use the same value across comparison runs when testing bot strength, and only change it intentionally when comparing performance across tournament speeds.
 
 ---
 
