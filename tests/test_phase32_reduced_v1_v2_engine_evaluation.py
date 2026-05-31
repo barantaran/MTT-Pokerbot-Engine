@@ -239,6 +239,61 @@ class Phase32ReducedV1V2EngineEvaluationTests(unittest.TestCase):
         self.assertEqual(report["comparison_summary"]["v5_minus_v4_average_position"], -0.5)
         self.assertAlmostEqual(report["comparison_summary"]["v5_minus_v4_total_payout_pct"], 0.2)
 
+    def test_build_report_accepts_no_random_v6_field_when_random_gate_disabled(self):
+        report = build_report(
+            {
+                "tournament_count": 2,
+                "reduced_v1_v2_engine_evaluation_report_path": "report.json",
+                "acceptance": {
+                    "min_completed_tournaments": 2,
+                    "min_v1_entries": 2,
+                    "min_v2_entries": 2,
+                    "min_v5_entries": 2,
+                    "min_v6_entries": 2,
+                    "require_v2_beats_random": False,
+                },
+            },
+            {"prerequisite_passed": True, "prerequisite_failures": [], "v1": {}, "v2": {}, "v5": {}, "v6": {}},
+            {
+                "tournament_failures": [],
+                "lineup_summary": {"total_bots": 12},
+                "event_summaries": [],
+                "event_log_paths": [],
+                "summary": {
+                    "completed_tournament_count": 2,
+                    "stopped_max_hands_count": 0,
+                    "groups": {
+                        "reduced_v1": {"entries": 2, "average_position": 11.0, "itm_rate": 0.1, "total_payout_pct": 0.2},
+                        "reduced_v2": {"entries": 2, "average_position": 9.0, "itm_rate": 0.2, "total_payout_pct": 0.5},
+                        "reduced_v5": {"entries": 2, "average_position": 7.0, "itm_rate": 0.5, "total_payout_pct": 1.1},
+                        "reduced_v6": {"entries": 2, "average_position": 6.5, "itm_rate": 0.5, "total_payout_pct": 1.3},
+                        "tight_equity": {"entries": 2, "average_position": 7.0},
+                        "equity_aggressive": {"entries": 2, "average_position": 10.0},
+                    },
+                },
+                "action_mix_summary": {},
+                "bot_fallback_summary": {
+                    "reduced_v1": {"totals": {"inference_errors": 0, "timeouts": 0, "illegal_actions": 0}},
+                    "reduced_v2": {"totals": {"inference_errors": 0, "timeouts": 0, "illegal_actions": 0}},
+                    "reduced_v5": {"totals": {"inference_errors": 0, "timeouts": 0, "illegal_actions": 0}},
+                    "reduced_v6": {"totals": {"inference_errors": 0, "timeouts": 0, "illegal_actions": 0}},
+                },
+                "model_equity_summary": {
+                    "reduced_v1": {"totals": {"fallbacks": 0}},
+                    "reduced_v2": {"totals": {"fallbacks": 0}},
+                    "reduced_v5": {"totals": {"fallbacks": 0}},
+                    "reduced_v6": {"totals": {"fallbacks": 0}},
+                },
+            },
+            "2026-05-29T00:00:00+00:00",
+            0.1,
+        )
+
+        self.assertEqual(report["phase32_reduced_v1_v2_engine_evaluation_status"], "accepted")
+        self.assertTrue(report["phase32_gate_results"]["v6_entry_gate_passed"])
+        self.assertEqual(report["comparison_summary"]["v6_minus_v5_average_position"], -0.5)
+        self.assertAlmostEqual(report["comparison_summary"]["v6_minus_v5_total_payout_pct"], 0.2)
+
     def test_phase34_config_uses_equal_no_random_lineup(self):
         engine_root = Path(__file__).resolve().parents[1]
         config = _read_json(engine_root / "configs" / "phase34_equal_no_random_reduced_v1_v2_v3_engine_evaluation.json")
