@@ -50,6 +50,7 @@ class ReducedModelEngineBot(Bot):
         equity_source: str = "pokerstove",
         equity_fallback_source: str | None = "constant",
         equity_iterations: int | None = None,
+        use_preflop_spot_range: bool = False,
         observation_size: int = 8,
         observation_schema: str = "reduced_v1",
         require_checkpoint: bool = True,
@@ -66,6 +67,7 @@ class ReducedModelEngineBot(Bot):
         self.equity_source = equity_source
         self.equity_fallback_source = equity_fallback_source
         self.equity_iterations = equity_iterations
+        self.use_preflop_spot_range = bool(use_preflop_spot_range)
         self.observation_size = observation_size
         self.observation_schema = observation_schema
         self.load_error = ""
@@ -107,6 +109,7 @@ class ReducedModelEngineBot(Bot):
                 source=self.equity_source,
                 fallback_source=self.equity_fallback_source,
                 iterations=self.equity_iterations,
+                use_preflop_spot_range=self.use_preflop_spot_range,
             ),
         )
         enriched["hero_equity"] = equity

@@ -77,16 +77,21 @@ class Phase22SmallMttEngineSimulationTests(unittest.TestCase):
                     "equity_aggressive": 1,
                     "tight_equity": 1,
                     "noisy_equity": 1,
+                    "range_policy": 1,
                     "aggressive_no_equity": 1,
                     "call": 1,
                 },
+                "range_policy_variants": [
+                    {"variant": "tight", "count": 1, "call_margin": 0.05, "raise_threshold": 0.62}
+                ],
                 "bot_decision_timeout_ms": 500,
                 "equity_source": "constant",
+                "model_use_preflop_spot_range": True,
             }
 
             bots = build_lineup(config, str(checkpoint), str(Path(__file__).resolve().parents[2] / "poker-ai-basemodel"))
 
-        self.assertEqual(len(bots), 8)
+        self.assertEqual(len(bots), 10)
         self.assertEqual(
             [bot.__class__.__name__ for bot in bots],
             [
@@ -96,10 +101,20 @@ class Phase22SmallMttEngineSimulationTests(unittest.TestCase):
                 "AggressiveBot",
                 "TightEquityBot",
                 "NoisyEquityBot",
+                "RangePolicyBot",
+                "RangePolicyBot",
                 "AggressiveNoEquityBot",
                 "CallBot",
             ],
         )
+        self.assertTrue(bots[0]._delegate.equity_config.use_preflop_spot_range)
+        self.assertFalse(bots[3].use_preflop_spot_range)
+        self.assertFalse(bots[4].use_preflop_spot_range)
+        self.assertFalse(bots[5].use_preflop_spot_range)
+        self.assertTrue(bots[6].use_preflop_spot_range)
+        self.assertEqual(bots[6].variant, "balanced")
+        self.assertEqual(bots[7].variant, "tight")
+        self.assertAlmostEqual(bots[7].call_margin, 0.05)
 
     def test_temporary_engine_config_restores_existing_and_removes_new_values(self):
         original_stack = engine_config.starting_stack

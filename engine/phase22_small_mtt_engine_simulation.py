@@ -19,6 +19,7 @@ from players.aggressive_bot import AggressiveBot
 from players.aggressive_no_equity_bot import AggressiveNoEquityBot
 from players.call_bot import CallBot
 from players.noisy_equity_bot import NoisyEquityBot
+from players.range_policy_bot import RangePolicyBot
 from players.random_bot import RandomBot
 from players.tight_equity_bot import TightEquityBot
 
@@ -149,6 +150,27 @@ def _set_bot_name(bot: Any, name: str) -> Any:
     return bot
 
 
+def _bool_config(config: Dict[str, Any], key: str, default: bool = False) -> bool:
+    if key not in config:
+        return default
+    return bool(config.get(key))
+
+
+def _range_enabled(config: Dict[str, Any], key: str, default: bool | None = None) -> bool:
+    if default is None:
+        default = bool(config.get("use_preflop_spot_range", False))
+    return _bool_config(config, key, default)
+
+
+def _range_policy_variants(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    lineup_config = dict(config.get("lineup", {}))
+    variants = list(config.get("range_policy_variants", []))
+    default_count = int(lineup_config.get("range_policy", 0) or 0)
+    if default_count:
+        variants.insert(0, {"variant": "balanced", "count": default_count})
+    return [dict(variant) for variant in variants]
+
+
 def build_lineup(config: Dict[str, Any], checkpoint_path: str, basemodel_root: str) -> List[Any]:
     lineup_config = dict(config.get("lineup", {}))
     bots: List[Any] = []
@@ -164,17 +186,48 @@ def build_lineup(config: Dict[str, Any], checkpoint_path: str, basemodel_root: s
                 equity_source=str(config.get("equity_source", "treys")),
                 equity_fallback_source=config.get("equity_fallback_source", "constant"),
                 equity_iterations=config.get("equity_iterations"),
+                use_preflop_spot_range=_range_enabled(config, "model_use_preflop_spot_range"),
                 require_checkpoint=True,
             )
         )
     for index in range(int(lineup_config.get("random", 0))):
         bots.append(_set_bot_name(RandomBot(), f"RandomBot_{index + 1}"))
     for index in range(int(lineup_config.get("equity_aggressive", 0))):
-        bots.append(_set_bot_name(AggressiveBot(), f"EquityAggressiveBot_{index + 1}"))
+        bots.append(
+            _set_bot_name(
+                AggressiveBot(use_preflop_spot_range=_range_enabled(config, "equity_aggressive_use_preflop_spot_range", False)),
+                f"EquityAggressiveBot_{index + 1}",
+            )
+        )
     for index in range(int(lineup_config.get("tight_equity", 0))):
-        bots.append(_set_bot_name(TightEquityBot(), f"TightEquityBot_{index + 1}"))
+        bots.append(
+            _set_bot_name(
+                TightEquityBot(use_preflop_spot_range=_range_enabled(config, "tight_equity_use_preflop_spot_range", False)),
+                f"TightEquityBot_{index + 1}",
+            )
+        )
     for index in range(int(lineup_config.get("noisy_equity", 0))):
-        bots.append(_set_bot_name(NoisyEquityBot(), f"NoisyEquityBot_{index + 1}"))
+        bots.append(
+            _set_bot_name(
+                NoisyEquityBot(use_preflop_spot_range=_range_enabled(config, "noisy_equity_use_preflop_spot_range", False)),
+                f"NoisyEquityBot_{index + 1}",
+            )
+        )
+    for variant_config in _range_policy_variants(config):
+        variant = str(variant_config.get("variant", "balanced") or "balanced")
+        count = int(variant_config.get("count", 1) or 0)
+        bot_kwargs = {
+            key: value
+            for key, value in variant_config.items()
+            if key not in {"count", "name"} and value is not None
+        }
+        bot_kwargs.setdefault("variant", variant)
+        bot_kwargs.setdefault(
+            "use_preflop_spot_range",
+            _range_enabled(config, "range_policy_use_preflop_spot_range", True),
+        )
+        for index in range(count):
+            bots.append(_set_bot_name(RangePolicyBot(**bot_kwargs), f"RangePolicyBot_{variant}_{index + 1}"))
     for index in range(int(lineup_config.get("aggressive_no_equity", 0))):
         bots.append(_set_bot_name(AggressiveNoEquityBot(), f"AggressiveNoEquityBot_{index + 1}"))
     for index in range(int(lineup_config.get("call", 0))):

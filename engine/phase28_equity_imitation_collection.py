@@ -247,6 +247,8 @@ class CollectingTeacherBot(Bot):
                 hole_cards=enriched.get("hole_cards", []),
                 board_cards=enriched.get("board_cards", []),
                 active_players=int(enriched.get("active_players", 2) or 2),
+                opponent_range_pct=enriched.get("opponent_range_pct"),
+                preflop_spot_type=enriched.get("preflop_spot_type"),
             )
             enriched["hero_equity"] = float(equity)
             enriched["hero_equity_source"] = "pokerstove"

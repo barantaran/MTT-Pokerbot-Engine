@@ -9,9 +9,10 @@ class TightEquityBot(Bot):
     with strong equity or short-stack value.
     """
 
-    def __init__(self, equity_estimator=None):
+    def __init__(self, equity_estimator=None, use_preflop_spot_range=False):
         super().__init__("TightEquityBot")
         self.equity_estimator = equity_estimator
+        self.use_preflop_spot_range = bool(use_preflop_spot_range)
 
     def get_action(self, game_state):
         hole_cards = game_state.get("hole_cards", [])
@@ -26,11 +27,17 @@ class TightEquityBot(Bot):
         street = len(board_cards)
         stack_bb = stack_size / float(big_blind)
         estimator = self.equity_estimator or estimate_equity
-        equity = estimator(
-            hole_cards=hole_cards,
-            board_cards=board_cards,
-            active_players=active_players,
-        )
+        if self.equity_estimator is None and "hero_equity" in game_state:
+            equity = float(game_state["hero_equity"])
+        else:
+            equity = estimator(
+                hole_cards=hole_cards,
+                board_cards=board_cards,
+                active_players=active_players,
+                opponent_range_pct=game_state.get("opponent_range_pct"),
+                preflop_spot_type=game_state.get("preflop_spot_type"),
+                use_preflop_spot_range=self.use_preflop_spot_range,
+            )
         required_equity = pot_odds(call_amount, pot_size)
 
         max_raise_extra = stack_size - call_amount

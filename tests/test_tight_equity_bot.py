@@ -30,6 +30,14 @@ class TightEquityBotTests(unittest.TestCase):
 
         self.assertEqual(action, ("call", 0))
 
+    def test_uses_provided_hero_equity_without_recomputing(self):
+        bot = TightEquityBot()
+
+        with patch("players.tight_equity_bot.estimate_equity", side_effect=AssertionError("should not compute")):
+            action = bot.get_action(state(hero_equity=0.70))
+
+        self.assertEqual(action, ("raise", 50))
+
     def test_folds_when_call_price_exceeds_equity_margin(self):
         bot = TightEquityBot()
 

@@ -11,30 +11,64 @@ class NoisyEquityBot(Bot):
     legal nearby mistakes.
     """
 
-    def __init__(self, adjacent_noise_rate=0.15, mistake_rate=0.05, real_equity_weight=0.60):
+    def __init__(
+        self,
+        adjacent_noise_rate=0.15,
+        mistake_rate=0.05,
+        real_equity_weight=0.60,
+        use_preflop_spot_range=False,
+    ):
         super().__init__("NoisyEquityBot")
         self.real_equity_weight = float(real_equity_weight)
-        self.tight = TightEquityBot(equity_estimator=self._estimate_perceived_equity)
+        self.use_preflop_spot_range = bool(use_preflop_spot_range)
+        self.tight = TightEquityBot(
+            equity_estimator=self._estimate_perceived_equity,
+            use_preflop_spot_range=self.use_preflop_spot_range,
+        )
         self.adjacent_noise_rate = float(adjacent_noise_rate)
         self.mistake_rate = float(mistake_rate)
 
-    def _estimate_perceived_equity(self, *, hole_cards, board_cards, active_players):
+    def _estimate_perceived_equity(
+        self,
+        *,
+        hole_cards,
+        board_cards,
+        active_players,
+        opponent_range_pct=None,
+        preflop_spot_type=None,
+        use_preflop_spot_range=False,
+    ):
         real_equity = self.tight_equity(
             hole_cards=hole_cards,
             board_cards=board_cards,
             active_players=active_players,
+            opponent_range_pct=opponent_range_pct,
+            preflop_spot_type=preflop_spot_type,
+            use_preflop_spot_range=use_preflop_spot_range,
         )
         random_equity = random.uniform(0.15, 0.85)
         real_weight = min(1.0, max(0.0, self.real_equity_weight))
         return real_weight * real_equity + (1.0 - real_weight) * random_equity
 
-    def tight_equity(self, *, hole_cards, board_cards, active_players):
+    def tight_equity(
+        self,
+        *,
+        hole_cards,
+        board_cards,
+        active_players,
+        opponent_range_pct=None,
+        preflop_spot_type=None,
+        use_preflop_spot_range=False,
+    ):
         from players.tight_equity_bot import estimate_equity
 
         return estimate_equity(
             hole_cards=hole_cards,
             board_cards=board_cards,
             active_players=active_players,
+            opponent_range_pct=opponent_range_pct,
+            preflop_spot_type=preflop_spot_type,
+            use_preflop_spot_range=use_preflop_spot_range,
         )
 
     def get_action(self, game_state):

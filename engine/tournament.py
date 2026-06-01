@@ -40,6 +40,7 @@ class Tournament:
             table = Table(table_id, tournament_id=self.tournament_id)
             table.starting_field = self.starting_field
             table.paid_places = self.paid_places
+            table.payouts = dict(config.payouts)
             for p in table_players:
                 table.add_player(p)
                 self.events.append({"type": "seat", "player": p.name, "table_id": table_id})
@@ -108,6 +109,7 @@ class Tournament:
                 table.starting_field = self.starting_field
                 table.paid_places = self.paid_places
                 table.players_left = players_left
+                table.payouts = dict(config.payouts)
                 busted, table_events = table.play_hand(blinds)
                 self.events.extend(table_events)
                 

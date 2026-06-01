@@ -2,12 +2,60 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from engine.phase32_reduced_v1_v2_engine_evaluation import _summarize_results, build_report
+from engine.phase32_reduced_v1_v2_engine_evaluation import (
+    _group_for_result,
+    _summarize_results,
+    build_phase32_lineup,
+    build_report,
+)
 from engine.phase22_small_mtt_engine_simulation import _read_json
 
 
 class Phase32ReducedV1V2EngineEvaluationTests(unittest.TestCase):
+    def test_range_policy_results_are_grouped_by_variant(self):
+        self.assertEqual(
+            _group_for_result({"name": "RangePolicyBot_loose_aggressive_1", "bot_class": "RangePolicyBot"}),
+            "range_policy_loose_aggressive",
+        )
+
+    @patch("engine.reduced_model_bot.load_reduced_checkpoint_model", return_value=object())
+    def test_model_range_flag_applies_to_reduced_models_only(self, _load_model):
+        with TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "latest.pt"
+            checkpoint.write_bytes(b"checkpoint")
+            prerequisite = {
+                "basemodel_root": str(Path(__file__).resolve().parents[2] / "poker-ai-basemodel"),
+                "v6": {
+                    "checkpoint_path": str(checkpoint),
+                    "reduced_observation_schema": "reduced_v4",
+                    "observation_size": 10,
+                    "failures": [],
+                    "passed": True,
+                },
+            }
+
+            bots = build_phase32_lineup(
+                {
+                    "lineup": {
+                        "v1_model": 0,
+                        "v2_model": 0,
+                        "v6_model": 1,
+                        "tight_equity": 1,
+                        "noisy_equity": 1,
+                    },
+                    "model_use_preflop_spot_range": True,
+                },
+                prerequisite,
+                Path(__file__).resolve().parents[1],
+            )
+
+        self.assertTrue(bots[0].use_preflop_spot_range)
+        self.assertFalse(bots[1].use_preflop_spot_range)
+        self.assertFalse(bots[2].use_preflop_spot_range)
+
     def test_summary_reports_final_table_rate_and_average_payout(self):
         summary = _summarize_results(
             [

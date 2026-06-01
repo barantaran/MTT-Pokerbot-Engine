@@ -155,6 +155,26 @@ class TablePreflopSpotTypeTests(unittest.TestCase):
             PREFLOP_SPOT_THREE_BET,
         )
 
+    def test_next_prize_gain_uses_next_bustout_pay_jump(self):
+        table = self._table()
+        table.players_left = 10
+        table.payouts = {
+            9: 0.012,
+            10: 0.0,
+        }
+
+        self.assertEqual(table._next_prize_gain_pct(), 0.012)
+
+    def test_next_prize_gain_is_zero_without_pay_jump(self):
+        table = self._table()
+        table.players_left = 12
+        table.payouts = {
+            9: 0.012,
+            10: 0.0,
+        }
+
+        self.assertEqual(table._next_prize_gain_pct(), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

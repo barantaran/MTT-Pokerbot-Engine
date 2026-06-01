@@ -39,6 +39,7 @@ ALLOWED_STATE_KEYS = {
     "itm_distance",
     "last_action_amount",
     "min_raise",
+    "next_prize_gain_pct",
     "opp_last_action_id",
     "opponent_range_pct",
     "opponent_stacks",
@@ -141,6 +142,7 @@ class BaselineModelEngineBot(Bot):
         equity_source: str = "treys",
         equity_fallback_source: str | None = "constant",
         equity_iterations: int | None = None,
+        use_preflop_spot_range: bool = False,
         model=None,
         require_checkpoint: bool = True,
     ):
@@ -175,6 +177,7 @@ class BaselineModelEngineBot(Bot):
             source=equity_source,
             fallback_source=equity_fallback_source,
             iterations=equity_iterations,
+            use_preflop_spot_range=use_preflop_spot_range,
         )
         self._delegate = NeuralBaselineBot(
             model=model,

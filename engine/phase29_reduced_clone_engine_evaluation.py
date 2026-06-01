@@ -260,6 +260,7 @@ def build_phase29_lineup(config: Dict[str, Any], checkpoint_path: str, basemodel
                 equity_source=str(config.get("equity_source", "pokerstove")),
                 equity_fallback_source=config.get("equity_fallback_source", "constant"),
                 equity_iterations=config.get("equity_iterations"),
+                use_preflop_spot_range=bool(config.get("model_use_preflop_spot_range", False)),
                 observation_size=int(config.get("reduced_observation_size", 8)),
                 require_checkpoint=True,
             )
