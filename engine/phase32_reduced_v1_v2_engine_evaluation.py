@@ -321,6 +321,8 @@ def _group_for_result(row: Dict[str, Any]) -> str:
         return "reduced_v8"
     if bot_class == "TightEquityBot":
         return "tight_equity"
+    if bot_class == "NoisyEquityBot":
+        return "noisy_equity"
     if bot_class == "AggressiveBot":
         return "equity_aggressive"
     if bot_class == "RandomBot":

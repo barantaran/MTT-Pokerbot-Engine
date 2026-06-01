@@ -455,6 +455,18 @@ class Phase32ReducedV1V2EngineEvaluationTests(unittest.TestCase):
         self.assertEqual(config["v8_reduced_observation_schema"], "reduced_v6")
         self.assertNotIn("ante", config["blinds_schedule"][0])
 
+    def test_phase40_config_adds_noisy_equity_field_benchmark(self):
+        engine_root = Path(__file__).resolve().parents[1]
+        config = _read_json(engine_root / "configs" / "phase40_noisy_equity_field_reduced_v6_v8_engine_evaluation.json")
+
+        self.assertNotIn("random", config["lineup"])
+        self.assertNotIn("call", config["lineup"])
+        self.assertEqual(config["lineup"]["v6_model"], 20)
+        self.assertEqual(config["lineup"]["v8_model"], 20)
+        self.assertEqual(config["lineup"]["tight_equity"], 20)
+        self.assertEqual(config["lineup"]["noisy_equity"], 20)
+        self.assertEqual(config["lineup"]["aggressive_no_equity"], 20)
+
 
 if __name__ == "__main__":
     unittest.main()

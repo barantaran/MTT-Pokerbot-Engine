@@ -18,6 +18,7 @@ from engine.tournament import Tournament
 from players.aggressive_bot import AggressiveBot
 from players.aggressive_no_equity_bot import AggressiveNoEquityBot
 from players.call_bot import CallBot
+from players.noisy_equity_bot import NoisyEquityBot
 from players.random_bot import RandomBot
 from players.tight_equity_bot import TightEquityBot
 
@@ -172,6 +173,8 @@ def build_lineup(config: Dict[str, Any], checkpoint_path: str, basemodel_root: s
         bots.append(_set_bot_name(AggressiveBot(), f"EquityAggressiveBot_{index + 1}"))
     for index in range(int(lineup_config.get("tight_equity", 0))):
         bots.append(_set_bot_name(TightEquityBot(), f"TightEquityBot_{index + 1}"))
+    for index in range(int(lineup_config.get("noisy_equity", 0))):
+        bots.append(_set_bot_name(NoisyEquityBot(), f"NoisyEquityBot_{index + 1}"))
     for index in range(int(lineup_config.get("aggressive_no_equity", 0))):
         bots.append(_set_bot_name(AggressiveNoEquityBot(), f"AggressiveNoEquityBot_{index + 1}"))
     for index in range(int(lineup_config.get("call", 0))):

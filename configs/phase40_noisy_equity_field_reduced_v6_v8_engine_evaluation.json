@@ -1,0 +1,111 @@
+{
+  "phase32_reduced_v1_v2_engine_evaluation_id": "phase40_noisy_equity_field_reduced_v6_v8_engine_evaluation",
+  "output_dir": "runs/phase40_noisy_equity_field_reduced_v6_v8_engine_evaluation",
+  "basemodel_root": "../poker-ai-basemodel",
+  "v6_training_report_glob": "../poker-ai-basemodel/runs/phase37_reduced_v6_v4_outcome_weighted_training/*/equity_imitation_training_report.json",
+  "v8_training_report_glob": "../poker-ai-basemodel/runs/phase39_reduced_v8_v6_preflop_spot_outcome_weighted_training/*/equity_imitation_training_report.json",
+  "v6_reduced_observation_schema": "reduced_v4",
+  "v6_reduced_observation_size": 10,
+  "v8_reduced_observation_schema": "reduced_v6",
+  "v8_reduced_observation_size": 11,
+  "tournament_count": 20,
+  "random_seed": 3920,
+  "starting_stack": 10000,
+  "max_players_per_table": 9,
+  "hands_per_level": 12,
+  "max_hands_per_tournament": 1000,
+  "bot_decision_timeout_ms": 500,
+  "deterministic": true,
+  "equity_source": "pokerstove",
+  "equity_fallback_source": "constant",
+  "lineup": {
+    "v1_model": 0,
+    "v2_model": 0,
+    "v6_model": 20,
+    "v8_model": 20,
+    "tight_equity": 20,
+    "noisy_equity": 20,
+    "equity_aggressive": 0,
+    "aggressive_no_equity": 20
+  },
+  "blinds_schedule": [
+    {
+      "small": 25,
+      "big": 50
+    },
+    {
+      "small": 50,
+      "big": 100
+    },
+    {
+      "small": 75,
+      "big": 150
+    },
+    {
+      "small": 100,
+      "big": 200
+    },
+    {
+      "small": 150,
+      "big": 300
+    },
+    {
+      "small": 200,
+      "big": 400
+    },
+    {
+      "small": 250,
+      "big": 500
+    },
+    {
+      "small": 300,
+      "big": 600
+    },
+    {
+      "small": 400,
+      "big": 800
+    },
+    {
+      "small": 500,
+      "big": 1000
+    },
+    {
+      "small": 600,
+      "big": 1200
+    },
+    {
+      "small": 800,
+      "big": 1600
+    },
+    {
+      "small": 1000,
+      "big": 2000
+    },
+    {
+      "small": 1500,
+      "big": 3000
+    }
+  ],
+  "payouts": {
+    "1": 0.33,
+    "2": 0.22,
+    "3": 0.15,
+    "4": 0.1,
+    "5": 0.08,
+    "6": 0.065,
+    "7": 0.055
+  },
+  "acceptance": {
+    "require_v2_beats_random": false,
+    "min_completed_tournaments": 20,
+    "min_v1_entries": 0,
+    "min_v2_entries": 0,
+    "min_v6_entries": 400,
+    "min_v8_entries": 400,
+    "max_model_inference_errors": 0,
+    "max_model_timeouts": 0,
+    "max_model_illegal_actions": 0,
+    "max_model_equity_fallbacks": 0,
+    "max_stopped_max_hands_rate": 0.2
+  }
+}

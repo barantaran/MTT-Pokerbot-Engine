@@ -76,6 +76,7 @@ class Phase22SmallMttEngineSimulationTests(unittest.TestCase):
                     "random": 2,
                     "equity_aggressive": 1,
                     "tight_equity": 1,
+                    "noisy_equity": 1,
                     "aggressive_no_equity": 1,
                     "call": 1,
                 },
@@ -85,7 +86,7 @@ class Phase22SmallMttEngineSimulationTests(unittest.TestCase):
 
             bots = build_lineup(config, str(checkpoint), str(Path(__file__).resolve().parents[2] / "poker-ai-basemodel"))
 
-        self.assertEqual(len(bots), 7)
+        self.assertEqual(len(bots), 8)
         self.assertEqual(
             [bot.__class__.__name__ for bot in bots],
             [
@@ -94,6 +95,7 @@ class Phase22SmallMttEngineSimulationTests(unittest.TestCase):
                 "RandomBot",
                 "AggressiveBot",
                 "TightEquityBot",
+                "NoisyEquityBot",
                 "AggressiveNoEquityBot",
                 "CallBot",
             ],
