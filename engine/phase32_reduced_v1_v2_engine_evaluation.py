@@ -32,9 +32,16 @@ from engine.reduced_model_bot import ReducedModelEngineBot
 from engine.tournament import Tournament
 
 
-OPTIONAL_MODEL_PREFIXES = ("v3", "v4", "v5", "v6")
-SCHEMA_BY_PREFIX = {"v3": "reduced_v3", "v4": "reduced_v4", "v5": "reduced_v5", "v6": "reduced_v4"}
-SIZE_BY_SCHEMA = {"reduced_v3": 9, "reduced_v4": 10, "reduced_v5": 11}
+OPTIONAL_MODEL_PREFIXES = ("v3", "v4", "v5", "v6", "v7", "v8")
+SCHEMA_BY_PREFIX = {
+    "v3": "reduced_v3",
+    "v4": "reduced_v4",
+    "v5": "reduced_v5",
+    "v6": "reduced_v4",
+    "v7": "reduced_v4",
+    "v8": "reduced_v6",
+}
+SIZE_BY_SCHEMA = {"reduced_v3": 9, "reduced_v4": 10, "reduced_v5": 11, "reduced_v6": 11}
 
 
 def load_config(path: str | Path) -> Dict[str, Any]:
@@ -98,11 +105,18 @@ def _training_prerequisite(config: Dict[str, Any], *, prefix: str, engine_root: 
 
 
 def verify_prerequisites(config: Dict[str, Any], engine_root: Path) -> Dict[str, Any]:
-    v1 = _training_prerequisite(config, prefix="v1", engine_root=engine_root)
-    v2 = _training_prerequisite(config, prefix="v2", engine_root=engine_root)
-    model_prefixes = ["v1", "v2"]
-    prerequisite_by_prefix = {"v1": v1, "v2": v2}
     lineup = dict(config.get("lineup", {}))
+    model_prefixes = []
+    prerequisite_by_prefix = {}
+    for prefix in ("v1", "v2"):
+        default_count = 1 if f"{prefix}_model" not in lineup else 0
+        has_prefix = int(lineup.get(f"{prefix}_model", default_count) or 0) > 0 or any(
+            config.get(key)
+            for key in (f"{prefix}_training_report_path", f"{prefix}_training_report_glob", f"{prefix}_checkpoint_path")
+        )
+        if has_prefix:
+            prerequisite_by_prefix[prefix] = _training_prerequisite(config, prefix=prefix, engine_root=engine_root)
+            model_prefixes.append(prefix)
     for prefix in OPTIONAL_MODEL_PREFIXES:
         has_prefix = int(lineup.get(f"{prefix}_model", 0) or 0) > 0 or any(
             config.get(key)
@@ -171,6 +185,8 @@ def build_phase32_lineup(config: Dict[str, Any], prerequisite: Dict[str, Any], e
     v4_count = int(lineup.get("v4_model", 0))
     v5_count = int(lineup.get("v5_model", 0))
     v6_count = int(lineup.get("v6_model", 0))
+    v7_count = int(lineup.get("v7_model", 0))
+    v8_count = int(lineup.get("v8_model", 0))
     patched = dict(config)
     patched_lineup = dict(lineup)
     patched_lineup["model"] = 0
@@ -180,6 +196,8 @@ def build_phase32_lineup(config: Dict[str, Any], prerequisite: Dict[str, Any], e
     patched_lineup.pop("v4_model", None)
     patched_lineup.pop("v5_model", None)
     patched_lineup.pop("v6_model", None)
+    patched_lineup.pop("v7_model", None)
+    patched_lineup.pop("v8_model", None)
     patched["lineup"] = patched_lineup
     bots: List[Any] = []
     for index in range(v1_count):
@@ -254,6 +272,30 @@ def build_phase32_lineup(config: Dict[str, Any], prerequisite: Dict[str, Any], e
                 prerequisite=prerequisite["v6"],
             )
         )
+    for index in range(v7_count):
+        bots.append(
+            _make_reduced_bot(
+                config,
+                prefix="v7",
+                checkpoint_path=prerequisite["v7"]["checkpoint_path"],
+                basemodel_root=prerequisite["basemodel_root"],
+                engine_root=engine_root,
+                name=f"ReducedV7ModelBot_{index + 1}",
+                prerequisite=prerequisite["v7"],
+            )
+        )
+    for index in range(v8_count):
+        bots.append(
+            _make_reduced_bot(
+                config,
+                prefix="v8",
+                checkpoint_path=prerequisite["v8"]["checkpoint_path"],
+                basemodel_root=prerequisite["basemodel_root"],
+                engine_root=engine_root,
+                name=f"ReducedV8ModelBot_{index + 1}",
+                prerequisite=prerequisite["v8"],
+            )
+        )
     bots.extend(build_lineup(patched, checkpoint_path="", basemodel_root=prerequisite["basemodel_root"]))
     return bots
 
@@ -273,6 +315,10 @@ def _group_for_result(row: Dict[str, Any]) -> str:
         return "reduced_v5"
     if name.startswith("ReducedV6ModelBot_"):
         return "reduced_v6"
+    if name.startswith("ReducedV7ModelBot_"):
+        return "reduced_v7"
+    if name.startswith("ReducedV8ModelBot_"):
+        return "reduced_v8"
     if bot_class == "TightEquityBot":
         return "tight_equity"
     if bot_class == "AggressiveBot":
@@ -333,6 +379,8 @@ def _summarize_events(tournament_id: int, events: List[Dict[str, Any]], results:
         "reduced_v4": {},
         "reduced_v5": {},
         "reduced_v6": {},
+        "reduced_v7": {},
+        "reduced_v8": {},
     }
     type_counts: Dict[str, int] = {}
     for event in events:
@@ -354,6 +402,10 @@ def _summarize_events(tournament_id: int, events: List[Dict[str, Any]], results:
             action_counts["reduced_v5"][action] = action_counts["reduced_v5"].get(action, 0) + 1
         if player.startswith("ReducedV6ModelBot_"):
             action_counts["reduced_v6"][action] = action_counts["reduced_v6"].get(action, 0) + 1
+        if player.startswith("ReducedV7ModelBot_"):
+            action_counts["reduced_v7"][action] = action_counts["reduced_v7"].get(action, 0) + 1
+        if player.startswith("ReducedV8ModelBot_"):
+            action_counts["reduced_v8"][action] = action_counts["reduced_v8"].get(action, 0) + 1
     return {
         "tournament_id": tournament_id,
         "event_count": len(events),
@@ -398,6 +450,8 @@ def run_campaign(config: Dict[str, Any], prerequisite: Dict[str, Any], engine_ro
         "reduced_v4": [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV4ModelBot_")],
         "reduced_v5": [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV5ModelBot_")],
         "reduced_v6": [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV6ModelBot_")],
+        "reduced_v7": [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV7ModelBot_")],
+        "reduced_v8": [bot for bot in bots if isinstance(bot, ReducedModelEngineBot) and bot.name.startswith("ReducedV8ModelBot_")],
     }
     model_bot_groups = {key: value for key, value in model_bot_groups.items() if value}
     fallback_before = {group: [dict(bot.fallback_counts) for bot in group_bots] for group, group_bots in model_bot_groups.items()}
@@ -466,9 +520,18 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
     v4 = dict(groups.get("reduced_v4", {}))
     v5 = dict(groups.get("reduced_v5", {}))
     v6 = dict(groups.get("reduced_v6", {}))
+    v7 = dict(groups.get("reduced_v7", {}))
+    v8 = dict(groups.get("reduced_v8", {}))
     random_group = dict(groups.get("random", {}))
     model_groups = ["reduced_v1", "reduced_v2"]
-    for prefix, group in (("v3", "reduced_v3"), ("v4", "reduced_v4"), ("v5", "reduced_v5"), ("v6", "reduced_v6")):
+    for prefix, group in (
+        ("v3", "reduced_v3"),
+        ("v4", "reduced_v4"),
+        ("v5", "reduced_v5"),
+        ("v6", "reduced_v6"),
+        ("v7", "reduced_v7"),
+        ("v8", "reduced_v8"),
+    ):
         if group in groups or prefix in prerequisite:
             model_groups.append(group)
     fallback_totals = [dict(campaign.get("bot_fallback_summary", {}).get(group, {}).get("totals", {})) for group in model_groups]
@@ -500,6 +563,16 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v6_entry_gate_passed": (
             int(v6.get("entries", 0) or 0) >= int(acceptance.get("min_v6_entries", 1))
             if "reduced_v6" in model_groups
+            else True
+        ),
+        "v7_entry_gate_passed": (
+            int(v7.get("entries", 0) or 0) >= int(acceptance.get("min_v7_entries", 1))
+            if "reduced_v7" in model_groups
+            else True
+        ),
+        "v8_entry_gate_passed": (
+            int(v8.get("entries", 0) or 0) >= int(acceptance.get("min_v8_entries", 1))
+            if "reduced_v8" in model_groups
             else True
         ),
         "stopped_max_hands_rate_gate_passed": stopped_rate <= float(acceptance.get("max_stopped_max_hands_rate", 0.2)),
@@ -567,6 +640,22 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v6_minus_v5_total_payout_pct": _delta(v6, v5, "total_payout_pct"),
         "v6_final_table_rate": v6.get("final_table_rate"),
         "v6_minus_v5_final_table_rate": _delta(v6, v5, "final_table_rate"),
+        "v7_average_position": v7.get("average_position"),
+        "v7_minus_v6_average_position": _delta(v7, v6, "average_position"),
+        "v7_itm_rate": v7.get("itm_rate"),
+        "v7_minus_v6_itm_rate": _delta(v7, v6, "itm_rate"),
+        "v7_total_payout_pct": v7.get("total_payout_pct"),
+        "v7_minus_v6_total_payout_pct": _delta(v7, v6, "total_payout_pct"),
+        "v7_final_table_rate": v7.get("final_table_rate"),
+        "v7_minus_v6_final_table_rate": _delta(v7, v6, "final_table_rate"),
+        "v8_average_position": v8.get("average_position"),
+        "v8_minus_v6_average_position": _delta(v8, v6, "average_position"),
+        "v8_itm_rate": v8.get("itm_rate"),
+        "v8_minus_v6_itm_rate": _delta(v8, v6, "itm_rate"),
+        "v8_total_payout_pct": v8.get("total_payout_pct"),
+        "v8_minus_v6_total_payout_pct": _delta(v8, v6, "total_payout_pct"),
+        "v8_final_table_rate": v8.get("final_table_rate"),
+        "v8_minus_v6_final_table_rate": _delta(v8, v6, "final_table_rate"),
         "random_average_position": random_group.get("average_position"),
     }
     return {
@@ -591,6 +680,8 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
         "v4_checkpoint_path": prerequisite.get("v4", {}).get("checkpoint_path", ""),
         "v5_checkpoint_path": prerequisite.get("v5", {}).get("checkpoint_path", ""),
         "v6_checkpoint_path": prerequisite.get("v6", {}).get("checkpoint_path", ""),
+        "v7_checkpoint_path": prerequisite.get("v7", {}).get("checkpoint_path", ""),
+        "v8_checkpoint_path": prerequisite.get("v8", {}).get("checkpoint_path", ""),
         "source_reports": {
             "v1_training_report_path": prerequisite.get("v1", {}).get("training_report_path", ""),
             "v2_training_report_path": prerequisite.get("v2", {}).get("training_report_path", ""),
@@ -598,6 +689,8 @@ def build_report(config: Dict[str, Any], prerequisite: Dict[str, Any], campaign:
             "v4_training_report_path": prerequisite.get("v4", {}).get("training_report_path", ""),
             "v5_training_report_path": prerequisite.get("v5", {}).get("training_report_path", ""),
             "v6_training_report_path": prerequisite.get("v6", {}).get("training_report_path", ""),
+            "v7_training_report_path": prerequisite.get("v7", {}).get("training_report_path", ""),
+            "v8_training_report_path": prerequisite.get("v8", {}).get("training_report_path", ""),
         },
         "artifact_paths": {
             "artifact_root": str(config.get("artifact_root", "")),

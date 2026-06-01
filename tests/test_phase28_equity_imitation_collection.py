@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from engine.phase22_small_mtt_engine_simulation import _read_json
 from engine.phase28_equity_imitation_collection import CollectingTeacherBot, EquityImitationCollector, build_phase28_lineup
 
 
@@ -165,6 +166,48 @@ class Phase28EquityImitationCollectionTests(unittest.TestCase):
             self.assertEqual(manifest["observation_size"], 11)
             self.assertEqual(manifest["observation_fields"][-1], "itm_distance")
 
+    def test_collector_can_write_reduced_v6_preflop_spot_row(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            collector = EquityImitationCollector(
+                {
+                    "dataset_path": str(root / "dataset.jsonl"),
+                    "manifest_path": str(root / "manifest.json"),
+                    "reduced_observation_schema": "reduced_v6",
+                },
+                basemodel_root=Path(__file__).resolve().parents[2] / "poker-ai-basemodel",
+            )
+            state = {
+                "hero_equity": 0.7,
+                "pot_odds": 0.25,
+                "pot_size": 100,
+                "stack_size": 1000,
+                "avg_table_stack": 500,
+                "players_left": 12,
+                "starting_field": 30,
+                "call_amount": 0,
+                "min_raise": 20,
+                "blinds": {"small": 10, "big": 20},
+                "active_players": 4,
+                "board_cards": [],
+                "position": "BTN",
+                "preflop_spot_type": "three_bet",
+                "player_id": "EquityBot_1",
+                "table_id": 1,
+                "hand_id": 1,
+                "tournament_id": 1,
+            }
+
+            collector.record_decision(game_state=state, action=("raise", 100))
+            manifest = collector.manifest({})
+            rows = [json.loads(line) for line in Path(collector.dataset_path).read_text(encoding="utf-8").splitlines()]
+
+            self.assertEqual(len(rows[0]["reduced_observation"]), 11)
+            self.assertEqual(rows[0]["reduced_observation_schema"], "reduced_v6")
+            self.assertAlmostEqual(rows[0]["reduced_observation"][10], 3.0 / 6.0)
+            self.assertEqual(manifest["observation_size"], 11)
+            self.assertEqual(manifest["observation_fields"][-1], "preflop_spot_type")
+
     def test_phase31_teacher_lineup_collects_tight_and_aggressive_but_not_model(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -191,6 +234,14 @@ class Phase28EquityImitationCollectionTests(unittest.TestCase):
             collecting_bots = [bot for bot in bots if isinstance(bot, CollectingTeacherBot)]
             self.assertEqual([bot.bot_type for bot in collecting_bots], ["tight_equity", "tight_equity", "equity_aggressive"])
             self.assertFalse(any(bot.bot_type == "model" for bot in collecting_bots))
+
+    def test_phase39_config_uses_v6_preflop_spot_schema(self):
+        engine_root = Path(__file__).resolve().parents[1]
+        config = _read_json(engine_root / "configs" / "phase39_reduced_v6_preflop_spot_tight_teacher_collection.json")
+
+        self.assertEqual(config["reduced_observation_schema"], "reduced_v6")
+        self.assertEqual(config["lineup"]["tight_equity"], 30)
+        self.assertEqual(config["teacher_mix"]["tight_equity"], 1.0)
 
 
 if __name__ == "__main__":

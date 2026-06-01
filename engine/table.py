@@ -6,6 +6,15 @@ from engine.pot import PotManager
 from engine.config import config
 import concurrent.futures
 
+
+PREFLOP_SPOT_UNKNOWN = "unknown"
+PREFLOP_SPOT_LIMPED = "limped"
+PREFLOP_SPOT_SRP = "srp"
+PREFLOP_SPOT_THREE_BET = "three_bet"
+PREFLOP_SPOT_FOUR_BET = "four_bet"
+PREFLOP_SPOT_FIVE_BET_PLUS = "five_bet_plus"
+PREFLOP_SPOT_ALL_IN_PRESSURE = "all_in_pressure"
+
 class Table:
     """
     Manages a single poker table.
@@ -21,6 +30,7 @@ class Table:
         self.starting_field = 0
         self.players_left = 0
         self.paid_places = 0
+        self.current_preflop_spot_type = PREFLOP_SPOT_UNKNOWN
 
     def add_player(self, player: PlayerState):
         self.players.append(player)
@@ -46,6 +56,7 @@ class Table:
         # 1. Setup
         for p in self.players:
             p.setup_new_hand()
+        self.current_preflop_spot_type = PREFLOP_SPOT_UNKNOWN
             
         events.append({
             "type": "hand_start",
@@ -131,6 +142,47 @@ class Table:
     def _players_who_can_act(self) -> int:
          return sum(1 for p in self.players if p.is_active and not p.is_all_in)
 
+    def _preflop_spot_type(
+        self,
+        *,
+        board: List[int],
+        blinds: Dict[str, int],
+        current_highest_bet: int,
+        raise_count: int,
+        limp_count: int,
+        call_amount: int,
+        player_stack: int,
+    ) -> str:
+        if board:
+            return self.current_preflop_spot_type
+        if call_amount > 0 and (
+            call_amount >= player_stack
+            or any(p.is_active and p.is_all_in and p.current_bet >= current_highest_bet for p in self.players)
+        ):
+            return PREFLOP_SPOT_ALL_IN_PRESSURE
+        if raise_count >= 4:
+            return PREFLOP_SPOT_FIVE_BET_PLUS
+        if raise_count == 3:
+            return PREFLOP_SPOT_FOUR_BET
+        if raise_count == 2:
+            return PREFLOP_SPOT_THREE_BET
+        if raise_count == 1:
+            return PREFLOP_SPOT_SRP
+        if limp_count > 0:
+            return PREFLOP_SPOT_LIMPED
+        return PREFLOP_SPOT_UNKNOWN
+
+    def _preflop_spot_from_raise_count(self, raise_count: int) -> str:
+        if raise_count >= 4:
+            return PREFLOP_SPOT_FIVE_BET_PLUS
+        if raise_count == 3:
+            return PREFLOP_SPOT_FOUR_BET
+        if raise_count == 2:
+            return PREFLOP_SPOT_THREE_BET
+        if raise_count == 1:
+            return PREFLOP_SPOT_SRP
+        return self.current_preflop_spot_type
+
     def _betting_round(self, blinds: Dict[str, int], board: List[int], pot_manager: PotManager, start_idx: int, current_highest_bet: int, events: List[Dict]):
         if self._players_who_can_act() <= 1 and all(p.current_bet == current_highest_bet for p in self.players if p.is_active and not p.is_all_in):
             return # No betting round needed if only 1 can act and they match the highest bet
@@ -139,6 +191,8 @@ class Table:
              p.has_acted = False
              
         min_raise = blinds['big']
+        preflop_raise_count = 0
+        preflop_limp_count = 0
         idx = start_idx
         num_players = len(self.players)
         
@@ -149,6 +203,15 @@ class Table:
                 # Need to act if haven't acted, OR if current bet doesn't match highest bet
                 if not player.has_acted or player.current_bet < current_highest_bet:
                     call_amount = current_highest_bet - player.current_bet
+                    preflop_spot_type = self._preflop_spot_type(
+                        board=board,
+                        blinds=blinds,
+                        current_highest_bet=current_highest_bet,
+                        raise_count=preflop_raise_count,
+                        limp_count=preflop_limp_count,
+                        call_amount=call_amount,
+                        player_stack=player.stack,
+                    )
                     
                     state = {
                         "hole_cards": player.hole_cards,
@@ -169,6 +232,7 @@ class Table:
                         "hand_id": self.hand_id,
                         "tournament_id": self.tournament_id,
                         "position": self._position_label(idx, num_players),
+                        "preflop_spot_type": preflop_spot_type,
                     }
                     
                     try:
@@ -188,6 +252,11 @@ class Table:
                     elif action == "call":
                         actual_bet = player.bet(call_amount)
                         events.append({"type": "action", "table_id": self.table_id, "player": player.name, "action": "call", "amount": actual_bet})
+                        if not board and current_highest_bet <= blinds["big"] and actual_bet > 0:
+                            preflop_limp_count += 1
+                            self.current_preflop_spot_type = PREFLOP_SPOT_LIMPED
+                        if not board and player.is_all_in and actual_bet > 0:
+                            self.current_preflop_spot_type = PREFLOP_SPOT_ALL_IN_PRESSURE
                     elif action == "raise":
                         if amount is None or amount < min_raise:
                             amount = min_raise
@@ -202,6 +271,13 @@ class Table:
                             if raise_size > min_raise:
                                 min_raise = raise_size
                             current_highest_bet = player.current_bet
+                            if not board:
+                                preflop_raise_count += 1
+                                self.current_preflop_spot_type = (
+                                    PREFLOP_SPOT_ALL_IN_PRESSURE
+                                    if player.is_all_in
+                                    else self._preflop_spot_from_raise_count(preflop_raise_count)
+                                )
                             
                             # Reset has_acted for others since the bet increased
                             for p in self.players:
