@@ -9,8 +9,9 @@ class TightEquityBot(Bot):
     with strong equity or short-stack value.
     """
 
-    def __init__(self):
+    def __init__(self, equity_estimator=None):
         super().__init__("TightEquityBot")
+        self.equity_estimator = equity_estimator
 
     def get_action(self, game_state):
         hole_cards = game_state.get("hole_cards", [])
@@ -24,7 +25,8 @@ class TightEquityBot(Bot):
 
         street = len(board_cards)
         stack_bb = stack_size / float(big_blind)
-        equity = estimate_equity(
+        estimator = self.equity_estimator or estimate_equity
+        equity = estimator(
             hole_cards=hole_cards,
             board_cards=board_cards,
             active_players=active_players,

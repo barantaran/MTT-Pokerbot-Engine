@@ -26,18 +26,28 @@ class NoisyEquityBotTests(unittest.TestCase):
         bot = NoisyEquityBot()
 
         with patch("players.tight_equity_bot.estimate_equity", return_value=0.70), patch(
-            "players.noisy_equity_bot.random.random", return_value=0.99
-        ):
+            "players.noisy_equity_bot.random.uniform", return_value=0.70
+        ), patch("players.noisy_equity_bot.random.random", return_value=0.99):
             action = bot.get_action(state())
 
         self.assertEqual(action, ("raise", 50))
+
+    def test_uses_sixty_percent_real_equity_and_forty_percent_random_equity(self):
+        bot = NoisyEquityBot()
+
+        with patch("players.tight_equity_bot.estimate_equity", return_value=0.90), patch(
+            "players.noisy_equity_bot.random.uniform", return_value=0.10
+        ), patch("players.noisy_equity_bot.random.random", return_value=0.99):
+            action = bot.get_action(state())
+
+        self.assertEqual(action, ("call", 0))
 
     def test_adjacent_noise_turns_fold_into_loose_call(self):
         bot = NoisyEquityBot(adjacent_noise_rate=0.15, mistake_rate=0.05)
 
         with patch("players.tight_equity_bot.estimate_equity", return_value=0.10), patch(
-            "players.noisy_equity_bot.random.random", return_value=0.10
-        ):
+            "players.noisy_equity_bot.random.uniform", return_value=0.10
+        ), patch("players.noisy_equity_bot.random.random", return_value=0.10):
             action = bot.get_action(state(call_amount=80))
 
         self.assertEqual(action, ("call", 0))
@@ -46,8 +56,8 @@ class NoisyEquityBotTests(unittest.TestCase):
         bot = NoisyEquityBot(adjacent_noise_rate=0.15, mistake_rate=0.05)
 
         with patch("players.tight_equity_bot.estimate_equity", return_value=0.35), patch(
-            "players.noisy_equity_bot.random.random", return_value=0.01
-        ):
+            "players.noisy_equity_bot.random.uniform", return_value=0.35
+        ), patch("players.noisy_equity_bot.random.random", return_value=0.01):
             action = bot.get_action(state())
 
         self.assertEqual(action, ("raise", 125))

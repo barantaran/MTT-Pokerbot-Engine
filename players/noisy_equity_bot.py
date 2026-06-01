@@ -7,14 +7,35 @@ from players.tight_equity_bot import TightEquityBot
 class NoisyEquityBot(Bot):
     """
     Imperfect equity-aware opponent for evaluation.
-    It mostly follows TightEquityBot, with occasional legal nearby mistakes.
+    It follows TightEquityBot using a noisy equity perception, with occasional
+    legal nearby mistakes.
     """
 
-    def __init__(self, adjacent_noise_rate=0.15, mistake_rate=0.05):
+    def __init__(self, adjacent_noise_rate=0.15, mistake_rate=0.05, real_equity_weight=0.60):
         super().__init__("NoisyEquityBot")
-        self.tight = TightEquityBot()
+        self.real_equity_weight = float(real_equity_weight)
+        self.tight = TightEquityBot(equity_estimator=self._estimate_perceived_equity)
         self.adjacent_noise_rate = float(adjacent_noise_rate)
         self.mistake_rate = float(mistake_rate)
+
+    def _estimate_perceived_equity(self, *, hole_cards, board_cards, active_players):
+        real_equity = self.tight_equity(
+            hole_cards=hole_cards,
+            board_cards=board_cards,
+            active_players=active_players,
+        )
+        random_equity = random.uniform(0.15, 0.85)
+        real_weight = min(1.0, max(0.0, self.real_equity_weight))
+        return real_weight * real_equity + (1.0 - real_weight) * random_equity
+
+    def tight_equity(self, *, hole_cards, board_cards, active_players):
+        from players.tight_equity_bot import estimate_equity
+
+        return estimate_equity(
+            hole_cards=hole_cards,
+            board_cards=board_cards,
+            active_players=active_players,
+        )
 
     def get_action(self, game_state):
         base_action = self.tight.get_action(game_state)

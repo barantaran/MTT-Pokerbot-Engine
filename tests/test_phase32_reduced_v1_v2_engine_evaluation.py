@@ -467,6 +467,25 @@ class Phase32ReducedV1V2EngineEvaluationTests(unittest.TestCase):
         self.assertEqual(config["lineup"]["noisy_equity"], 20)
         self.assertEqual(config["lineup"]["aggressive_no_equity"], 20)
 
+    def test_phase42_config_uses_real_based_200_entry_noisy_field(self):
+        engine_root = Path(__file__).resolve().parents[1]
+        config = _read_json(engine_root / "configs" / "phase42_real_based_200_noisy_v1_v6_v8_engine_evaluation.json")
+
+        self.assertNotIn("random", config["lineup"])
+        self.assertNotIn("call", config["lineup"])
+        self.assertEqual(sum(config["lineup"].values()), 200)
+        self.assertEqual(config["lineup"]["noisy_equity"], 109)
+        self.assertEqual(config["lineup"]["equity_aggressive"], 40)
+        self.assertEqual(config["lineup"]["tight_equity"], 30)
+        self.assertEqual(config["lineup"]["v1_model"], 10)
+        self.assertEqual(config["lineup"]["v8_model"], 10)
+        self.assertEqual(config["lineup"]["v6_model"], 1)
+        self.assertEqual(config["tournament_count"], 1)
+        self.assertEqual(config["starting_stack"], 10000)
+        self.assertEqual(config["hands_per_level"], 12)
+        self.assertEqual(len(config["payouts"]), 26)
+        self.assertNotIn("ante", config["blinds_schedule"][0])
+
 
 if __name__ == "__main__":
     unittest.main()
