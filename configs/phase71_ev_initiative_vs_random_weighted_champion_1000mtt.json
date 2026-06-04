@@ -1,0 +1,24 @@
+{
+  "run_id": "phase71_ev_initiative_vs_random_weighted_champion_1000mtt",
+  "observation_schema": "reduced_v6",
+  "random_weighted_count": 50,
+  "fixed_candidate_id": "candidate_096_phase67_wins_champion",
+  "fixed_candidate_checkpoint": "/home/varantaran/poker-ai/MTT-Pokerbot-Engine/runs/phase62_random_100_300mtt_vpip_probe/20260603_112827_320017/checkpoints/initial/candidate_096/latest.pt",
+  "ev_bot_count": 50,
+  "ev_bot_strategy": "initiative",
+  "mtt_count": 1000,
+  "workers": 8,
+  "random_seed": 71001,
+  "deterministic": true,
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "model_use_preflop_spot_range": false,
+    "ev_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": 5000
+  }
+}

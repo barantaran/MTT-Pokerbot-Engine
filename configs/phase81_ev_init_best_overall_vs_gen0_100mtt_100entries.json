@@ -1,0 +1,25 @@
+{
+  "run_id": "phase81_ev_init_best_overall_vs_gen0_100mtt_100entries",
+  "mtt_count": 100,
+  "workers": 8,
+  "random_seed": 81001,
+  "left": {
+    "label": "best_overall_evg08_011",
+    "candidate_id": "evg08_011",
+    "entries": 50,
+    "source_report": "runs/phase80_ev_initiative_paired_mutation_resume_10gen_100mtt_50entries/20260604_101640_083774/ev_initiative_evolution_report.json"
+  },
+  "right": {
+    "label": "gen0_evg00_015",
+    "candidate_id": "evg00_015",
+    "entries": 50,
+    "source_report": "runs/phase79_ev_initiative_paired_mutation_5gen_100mtt_50entries/20260604_093856_039844/ev_initiative_evolution_report.json"
+  },
+  "engine": {
+    "starting_stack": 5000,
+    "hands_per_level": 10,
+    "max_hands": 5000,
+    "engine": "pokerstove",
+    "fixed_bots_use_preflop_spot_range": false
+  }
+}

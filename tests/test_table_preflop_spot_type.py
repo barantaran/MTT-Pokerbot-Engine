@@ -18,6 +18,16 @@ class _Bot:
         self.name = name
 
 
+class _RecordingBot:
+    def __init__(self, name):
+        self.name = name
+        self.states = []
+
+    def get_action(self, game_state):
+        self.states.append(dict(game_state))
+        return ("fold", 0)
+
+
 class TablePreflopSpotTypeTests(unittest.TestCase):
     def _table(self):
         table = Table(table_id=1)
@@ -26,6 +36,28 @@ class TablePreflopSpotTypeTests(unittest.TestCase):
             player.is_active = True
             table.add_player(player)
         return table
+
+    def test_early_positions_face_big_blind_preflop_not_free_check(self):
+        table = Table(table_id=1)
+        bots = [_RecordingBot(f"P{index}") for index in range(9)]
+        for bot in bots:
+            player = PlayerState(bot, 1000)
+            player.is_active = True
+            table.add_player(player)
+
+        _active_players, _events = table.play_hand({"small": 10, "big": 20})
+
+        first_states = [bot.states[0] for bot in bots if bot.states]
+        utg_state = next(state for state in first_states if state["position"] == "UTG")
+        non_blind_preflop_states = [
+            state
+            for state in first_states
+            if state["board_cards"] == [] and state["position"] not in {"SB", "BB"}
+        ]
+
+        self.assertEqual(utg_state["call_amount"], 20)
+        self.assertTrue(non_blind_preflop_states)
+        self.assertTrue(all(state["call_amount"] > 0 for state in non_blind_preflop_states))
 
     def test_separates_unknown_from_limped(self):
         table = self._table()

@@ -1,0 +1,25 @@
+{
+  "run_id": "phase76_ev_initiative_evolution_10gen_50entries",
+  "generations": 10,
+  "population_size": 20,
+  "keep_count": 8,
+  "mutation_sigma": 0.25,
+  "mtt_count_per_generation": 4,
+  "workers": 4,
+  "entries_per_candidate": 2,
+  "random_seed": 76001,
+  "controls": {
+    "tight_equity": 5,
+    "tournament_equity": 5
+  },
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "fixed_bots_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": 5000
+  }
+}

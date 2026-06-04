@@ -1,0 +1,25 @@
+{
+  "run_id": "phase61_evolutionary_reduced_reset_8_slow_deep",
+  "mode": "steady",
+  "observation_schema": "reduced_v6",
+  "population_size": 200,
+  "mtt_count": 8,
+  "workers": 8,
+  "replace_count": 8,
+  "selection_mode": "winners_only",
+  "random_seed": 61001,
+  "deterministic": true,
+  "mutation_sigma": 0.02,
+  "policy_head_only": true,
+  "write_events": false,
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "model_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 10000,
+    "max_players_per_table": 9,
+    "hands_per_level": 24,
+    "max_hands_per_tournament": 5000
+  }
+}

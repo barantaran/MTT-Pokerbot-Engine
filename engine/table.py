@@ -44,6 +44,40 @@ class Table:
         drawn = deck.draw(1)
         return drawn if isinstance(drawn, int) else drawn[0]
 
+    def _street_label(self, board: List[int]) -> str:
+        if not board:
+            return "preflop"
+        if len(board) == 3:
+            return "flop"
+        if len(board) == 4:
+            return "turn"
+        return "river"
+
+    def _action_event(
+        self,
+        player_name: str,
+        action: str,
+        amount: int,
+        street: str,
+        *,
+        position: str = "",
+        call_amount: int = 0,
+        pot_size: int = 0,
+    ) -> Dict[str, Any]:
+        return {
+            "type": "action",
+            "table_id": self.table_id,
+            "hand_id": self.hand_id,
+            "tournament_id": self.tournament_id,
+            "player": player_name,
+            "action": action,
+            "amount": amount,
+            "street": street,
+            "position": position,
+            "call_amount": call_amount,
+            "pot_size": pot_size,
+        }
+
     def play_hand(self, blinds: Dict[str, int]) -> Tuple[List[PlayerState], List[Dict]]:
         """
         Runs a single hand of Texas Hold'em.
@@ -92,7 +126,14 @@ class Table:
         for p in self.players:
             if p.is_active:
                 p.hole_cards = deck.draw(2)
-                events.append({"type": "deal", "table_id": self.table_id, "player": p.name, "cards": [Card.int_to_str(c) for c in p.hole_cards]})
+                events.append({
+                    "type": "deal",
+                    "table_id": self.table_id,
+                    "hand_id": self.hand_id,
+                    "tournament_id": self.tournament_id,
+                    "player": p.name,
+                    "cards": [Card.int_to_str(c) for c in p.hole_cards],
+                })
 
         # 2. Pre-Flop Betting
         action_start_idx = (bb_idx + 1) % num_players
@@ -256,12 +297,33 @@ class Table:
                         print(f"Bot {player.name} raised exception: {e}. Defaulting to fold.")
                         action, amount = "fold", 0
 
+                    street = self._street_label(board)
+
+                    action_position = str(state.get("position", ""))
+                    action_pot_size = int(state.get("pot_size", 0) or 0)
+
                     if action == "fold" and call_amount > 0:
                         player.is_active = False
-                        events.append({"type": "action", "table_id": self.table_id, "player": player.name, "action": "fold", "amount": 0})
+                        events.append(self._action_event(
+                            player.name,
+                            "fold",
+                            0,
+                            street,
+                            position=action_position,
+                            call_amount=call_amount,
+                            pot_size=action_pot_size,
+                        ))
                     elif action == "call":
                         actual_bet = player.bet(call_amount)
-                        events.append({"type": "action", "table_id": self.table_id, "player": player.name, "action": "call", "amount": actual_bet})
+                        events.append(self._action_event(
+                            player.name,
+                            "call",
+                            actual_bet,
+                            street,
+                            position=action_position,
+                            call_amount=call_amount,
+                            pot_size=action_pot_size,
+                        ))
                         if not board and current_highest_bet <= blinds["big"] and actual_bet > 0:
                             preflop_limp_count += 1
                             self.current_preflop_spot_type = PREFLOP_SPOT_LIMPED
@@ -273,7 +335,15 @@ class Table:
                         total_to_put_in = call_amount + amount
                         actual_bet = player.bet(total_to_put_in)
                         
-                        events.append({"type": "action", "table_id": self.table_id, "player": player.name, "action": "raise", "amount": actual_bet})
+                        events.append(self._action_event(
+                            player.name,
+                            "raise",
+                            actual_bet,
+                            street,
+                            position=action_position,
+                            call_amount=call_amount,
+                            pot_size=action_pot_size,
+                        ))
 
                         if player.current_bet > current_highest_bet:
                             # Valid raise increases the highest bet
@@ -297,9 +367,25 @@ class Table:
                         # Default check/fold
                         if call_amount > 0:
                             player.is_active = False
-                            events.append({"type": "action", "table_id": self.table_id, "player": player.name, "action": "fold", "amount": 0})
+                            events.append(self._action_event(
+                                player.name,
+                                "fold",
+                                0,
+                                street,
+                                position=action_position,
+                                call_amount=call_amount,
+                                pot_size=action_pot_size,
+                            ))
                         else:
-                            events.append({"type": "action", "table_id": self.table_id, "player": player.name, "action": "check", "amount": 0})
+                            events.append(self._action_event(
+                                player.name,
+                                "check",
+                                0,
+                                street,
+                                position=action_position,
+                                call_amount=call_amount,
+                                pot_size=action_pot_size,
+                            ))
                             
                     player.has_acted = True
             

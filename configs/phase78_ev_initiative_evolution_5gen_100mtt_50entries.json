@@ -1,0 +1,22 @@
+{
+  "run_id": "phase78_ev_initiative_evolution_5gen_100mtt_50entries",
+  "generations": 5,
+  "population_size": 20,
+  "keep_count": 6,
+  "mutation_sigma": 0.18,
+  "mtt_count_per_generation": 100,
+  "workers": 8,
+  "entries_per_candidate": 2,
+  "random_seed": 78001,
+  "controls": {
+    "tight_equity": 10,
+    "tournament_equity": 0
+  },
+  "engine": {
+    "starting_stack": 5000,
+    "hands_per_level": 10,
+    "max_hands": 5000,
+    "engine": "pokerstove",
+    "fixed_bots_use_preflop_spot_range": false
+  }
+}

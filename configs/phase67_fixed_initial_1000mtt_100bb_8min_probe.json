@@ -1,0 +1,26 @@
+{
+  "run_id": "phase67_fixed_initial_1000mtt_100bb_8min_probe",
+  "mode": "steady",
+  "observation_schema": "reduced_v6",
+  "population_path": "runs/phase62_random_100_300mtt_vpip_probe/20260603_112827_320017/next_population.json",
+  "population_size": 100,
+  "mtt_count": 1000,
+  "workers": 8,
+  "replace_count": 0,
+  "selection_mode": "score",
+  "random_seed": 67001,
+  "deterministic": true,
+  "mutation_sigma": 0.02,
+  "policy_head_only": true,
+  "write_events": false,
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "model_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": 5000
+  }
+}

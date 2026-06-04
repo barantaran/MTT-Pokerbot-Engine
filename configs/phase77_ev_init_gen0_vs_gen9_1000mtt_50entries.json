@@ -1,0 +1,24 @@
+{
+  "run_id": "phase77_ev_init_gen0_vs_gen9_1000mtt_50entries",
+  "source_report": "runs/phase76_ev_initiative_evolution_10gen_50entries/20260604_023247_081287/ev_initiative_evolution_report.json",
+  "mtt_count": 1000,
+  "workers": 8,
+  "random_seed": 77001,
+  "left": {
+    "label": "gen0_evg00_019",
+    "candidate_id": "evg00_019",
+    "entries": 25
+  },
+  "right": {
+    "label": "gen9_evg08_003",
+    "candidate_id": "evg08_003",
+    "entries": 25
+  },
+  "engine": {
+    "starting_stack": 5000,
+    "hands_per_level": 10,
+    "max_hands": 5000,
+    "engine": "pokerstove",
+    "fixed_bots_use_preflop_spot_range": false
+  }
+}

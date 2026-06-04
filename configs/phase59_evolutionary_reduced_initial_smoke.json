@@ -1,0 +1,20 @@
+{
+  "run_id": "phase59_evolutionary_reduced_initial_smoke",
+  "observation_schema": "reduced_v6",
+  "candidate_count": 20,
+  "entries_per_candidate": 10,
+  "mtt_count": 8,
+  "random_seed": 59001,
+  "deterministic": true,
+  "write_events": false,
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "model_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 10000,
+    "max_players_per_table": 9,
+    "hands_per_level": 12,
+    "max_hands_per_tournament": 3000
+  }
+}

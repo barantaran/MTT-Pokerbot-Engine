@@ -1,0 +1,21 @@
+{
+  "run_id": "phase73_ev_initiative_trace_1mtt",
+  "mtt_count": 1,
+  "workers": 1,
+  "random_seed": 73001,
+  "write_events": true,
+  "lineup": {
+    "ev_initiative": 9,
+    "tight_equity": 9
+  },
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "fixed_bots_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": 5000
+  }
+}
