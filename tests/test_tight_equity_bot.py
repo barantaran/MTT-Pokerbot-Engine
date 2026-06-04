@@ -62,6 +62,34 @@ class TightEquityBotTests(unittest.TestCase):
 
         self.assertEqual(action, ("raise", 100))
 
+    def test_call_margin_shift_tightens_marginal_calls(self):
+        bot = TightEquityBot(call_margin_shift=0.08)
+
+        action = bot.get_action(state(pot_size=100, call_amount=40, hero_equity=0.37))
+
+        self.assertEqual(action, ("fold", 0))
+
+    def test_raise_threshold_shift_tightens_value_raises(self):
+        bot = TightEquityBot(raise_threshold_shift=0.10)
+
+        action = bot.get_action(state(hero_equity=0.70))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_preflop_vpip_gate_can_fold_marginal_free_position(self):
+        bot = TightEquityBot(preflop_vpip_gate_shift=0.08)
+
+        action = bot.get_action(state(hero_equity=0.25, position="HJ"))
+
+        self.assertEqual(action, ("fold", 0))
+
+    def test_preflop_vpip_gate_keeps_big_blind_check_available(self):
+        bot = TightEquityBot(preflop_vpip_gate_shift=0.20)
+
+        action = bot.get_action(state(hero_equity=0.10, position="BB", call_amount=0))
+
+        self.assertEqual(action, ("call", 0))
+
 
 if __name__ == "__main__":
     unittest.main()

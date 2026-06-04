@@ -293,9 +293,50 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
     stats: Dict[str, Dict[str, Any]] = {}
     dealt_hands: Dict[str, set] = {}
     vpip_hands: Dict[str, set] = {}
+    pfr_hands: Dict[str, set] = {}
+    preflop_call_hands: Dict[str, set] = {}
+    three_bet_opportunity_hands: Dict[str, set] = {}
+    three_bet_hands: Dict[str, set] = {}
+    faced_three_bet_hands: Dict[str, set] = {}
+    folded_to_three_bet_hands: Dict[str, set] = {}
+    cbet_opportunity_hands: Dict[str, set] = {}
+    cbet_hands: Dict[str, set] = {}
+    saw_flop_hands: Dict[str, set] = {}
+    showdown_hands: Dict[str, set] = {}
+    won_showdown_hands: Dict[str, set] = {}
+    preflop_raise_count_by_hand: Dict[tuple, int] = {}
+    preflop_opener_by_hand: Dict[tuple, str] = {}
+    preflop_aggressor_by_hand: Dict[tuple, str] = {}
+    flop_bet_seen_by_hand: Dict[tuple, bool] = {}
+
+    def default_summary() -> Dict[str, Any]:
+        return {
+            "action_total": 0,
+            "action_counts": {},
+            "street_action_counts": {},
+            "amount_total": 0,
+            "raise_amount_total": 0,
+            "raise_count": 0,
+            "postflop_raise_count": 0,
+            "postflop_call_count": 0,
+            "vpip_hands": 0,
+            "vpip_count": 0,
+            "pfr_count": 0,
+            "preflop_call_count": 0,
+            "three_bet_opportunity_count": 0,
+            "three_bet_count": 0,
+            "faced_three_bet_count": 0,
+            "folded_to_three_bet_count": 0,
+            "cbet_opportunity_count": 0,
+            "cbet_count": 0,
+            "saw_flop_count": 0,
+            "showdown_count": 0,
+            "won_showdown_count": 0,
+        }
+
     for event in events:
         event_type = str(event.get("type", ""))
-        if event_type not in {"action", "deal"}:
+        if event_type not in {"action", "deal", "showdown", "award_pot"}:
             continue
         candidate_id = name_to_candidate.get(str(event.get("player", "")))
         if not candidate_id:
@@ -305,49 +346,106 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
             int(event.get("table_id", 0) or 0),
             int(event.get("hand_id", 0) or 0),
         )
+        player_name = str(event.get("player", ""))
+        player_hand_key = (*hand_key, player_name)
         if event_type == "deal":
-            dealt_hands.setdefault(candidate_id, set()).add(hand_key)
+            dealt_hands.setdefault(candidate_id, set()).add(player_hand_key)
             continue
+        if event_type == "showdown":
+            saw_flop_hands.setdefault(candidate_id, set()).add(player_hand_key)
+            showdown_hands.setdefault(candidate_id, set()).add(player_hand_key)
+            continue
+        if event_type == "award_pot":
+            if bool(event.get("showdown", False)):
+                won_showdown_hands.setdefault(candidate_id, set()).add(player_hand_key)
+            continue
+
         action = str(event.get("action", "unknown") or "unknown")
         amount = int(event.get("amount", 0) or 0)
         if action == "call" and amount == 0:
             action = "check"
-        if str(event.get("street", "")) == "preflop" and action in {"call", "raise"} and amount > 0:
-            vpip_hands.setdefault(candidate_id, set()).add(hand_key)
-        summary = stats.setdefault(
-            candidate_id,
-            {
-                "action_total": 0,
-                "action_counts": {},
-                "amount_total": 0,
-                "raise_amount_total": 0,
-                "raise_count": 0,
-                "vpip_hands": 0,
-                "vpip_count": 0,
-            },
-        )
+        street = str(event.get("street", ""))
+        if street == "preflop" and action in {"call", "raise"} and amount > 0:
+            vpip_hands.setdefault(candidate_id, set()).add(player_hand_key)
+            if action == "raise":
+                pfr_hands.setdefault(candidate_id, set()).add(player_hand_key)
+            elif action == "call":
+                preflop_call_hands.setdefault(candidate_id, set()).add(player_hand_key)
+        if street == "preflop":
+            raise_count_before = int(preflop_raise_count_by_hand.get(hand_key, 0))
+            opener_player = preflop_opener_by_hand.get(hand_key)
+            if raise_count_before == 1 and int(event.get("call_amount", 0) or 0) > 0 and player_name != opener_player:
+                three_bet_opportunity_hands.setdefault(candidate_id, set()).add(player_hand_key)
+            if action == "fold" and player_hand_key in faced_three_bet_hands.get(candidate_id, set()):
+                folded_to_three_bet_hands.setdefault(candidate_id, set()).add(player_hand_key)
+            if action == "raise" and amount > 0:
+                if raise_count_before == 0:
+                    preflop_opener_by_hand[hand_key] = player_name
+                elif raise_count_before == 1:
+                    three_bet_hands.setdefault(candidate_id, set()).add(player_hand_key)
+                    if opener_player and opener_player != player_name:
+                        opener_candidate_id = name_to_candidate.get(opener_player)
+                        if opener_candidate_id:
+                            faced_three_bet_hands.setdefault(opener_candidate_id, set()).add((*hand_key, opener_player))
+                preflop_raise_count_by_hand[hand_key] = raise_count_before + 1
+                preflop_aggressor_by_hand[hand_key] = player_name
+        elif street in {"flop", "turn", "river"}:
+            saw_flop_hands.setdefault(candidate_id, set()).add(player_hand_key)
+            if street == "flop":
+                preflop_aggressor_player = preflop_aggressor_by_hand.get(hand_key)
+                flop_bet_seen = bool(flop_bet_seen_by_hand.get(hand_key, False))
+                if preflop_aggressor_player and player_name == preflop_aggressor_player and not flop_bet_seen and int(event.get("call_amount", 0) or 0) == 0:
+                    cbet_opportunity_hands.setdefault(candidate_id, set()).add(player_hand_key)
+                    if action == "raise" and amount > 0:
+                        cbet_hands.setdefault(candidate_id, set()).add(player_hand_key)
+                if action == "raise" and amount > 0:
+                    flop_bet_seen_by_hand[hand_key] = True
+
+        summary = stats.setdefault(candidate_id, default_summary())
         summary["action_total"] += 1
         summary["action_counts"][action] = int(summary["action_counts"].get(action, 0)) + 1
+        street_counts = summary["street_action_counts"].setdefault(street or "unknown", {})
+        street_counts[action] = int(street_counts.get(action, 0)) + 1
         summary["amount_total"] += amount
         if action == "raise":
             summary["raise_count"] += 1
             summary["raise_amount_total"] += amount
+            if street != "preflop":
+                summary["postflop_raise_count"] += 1
+        elif action == "call" and street != "preflop":
+            summary["postflop_call_count"] += 1
 
-    for candidate_id in set(stats) | set(dealt_hands) | set(vpip_hands):
-        summary = stats.setdefault(
-            candidate_id,
-            {
-                "action_total": 0,
-                "action_counts": {},
-                "amount_total": 0,
-                "raise_amount_total": 0,
-                "raise_count": 0,
-                "vpip_hands": 0,
-                "vpip_count": 0,
-            },
-        )
+    action_candidate_ids = (
+        set(stats)
+        | set(dealt_hands)
+        | set(vpip_hands)
+        | set(pfr_hands)
+        | set(preflop_call_hands)
+        | set(three_bet_opportunity_hands)
+        | set(three_bet_hands)
+        | set(faced_three_bet_hands)
+        | set(folded_to_three_bet_hands)
+        | set(cbet_opportunity_hands)
+        | set(cbet_hands)
+        | set(saw_flop_hands)
+        | set(showdown_hands)
+        | set(won_showdown_hands)
+    )
+    for candidate_id in action_candidate_ids:
+        summary = stats.setdefault(candidate_id, default_summary())
         summary["vpip_hands"] = len(dealt_hands.get(candidate_id, set()))
         summary["vpip_count"] = len(vpip_hands.get(candidate_id, set()))
+        summary["pfr_count"] = len(pfr_hands.get(candidate_id, set()))
+        summary["preflop_call_count"] = len(preflop_call_hands.get(candidate_id, set()))
+        summary["three_bet_opportunity_count"] = len(three_bet_opportunity_hands.get(candidate_id, set()))
+        summary["three_bet_count"] = len(three_bet_hands.get(candidate_id, set()))
+        summary["faced_three_bet_count"] = len(faced_three_bet_hands.get(candidate_id, set()))
+        summary["folded_to_three_bet_count"] = len(folded_to_three_bet_hands.get(candidate_id, set()))
+        summary["cbet_opportunity_count"] = len(cbet_opportunity_hands.get(candidate_id, set()))
+        summary["cbet_count"] = len(cbet_hands.get(candidate_id, set()))
+        summary["saw_flop_count"] = len(saw_flop_hands.get(candidate_id, set()))
+        summary["showdown_count"] = len(showdown_hands.get(candidate_id, set()))
+        summary["won_showdown_count"] = len(won_showdown_hands.get(candidate_id, set()))
 
     for summary in stats.values():
         total = max(1, int(summary["action_total"]))
@@ -364,33 +462,99 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
             if int(summary["vpip_hands"]) > 0
             else 0.0
         )
+        summary["pfr"] = (
+            float(summary["pfr_count"]) / int(summary["vpip_hands"])
+            if int(summary["vpip_hands"]) > 0
+            else 0.0
+        )
+        summary["preflop_call_rate"] = (
+            float(summary["preflop_call_count"]) / int(summary["vpip_hands"])
+            if int(summary["vpip_hands"]) > 0
+            else 0.0
+        )
+        postflop_call_count = int(summary["postflop_call_count"])
+        summary["postflop_aggression_factor"] = (
+            float(summary["postflop_raise_count"]) / postflop_call_count
+            if postflop_call_count > 0
+            else float(summary["postflop_raise_count"])
+        )
+        three_bet_opportunities = int(summary["three_bet_opportunity_count"])
+        summary["three_bet_rate"] = (
+            float(summary["three_bet_count"]) / three_bet_opportunities
+            if three_bet_opportunities > 0
+            else 0.0
+        )
+        faced_three_bets = int(summary["faced_three_bet_count"])
+        summary["fold_to_three_bet_rate"] = (
+            float(summary["folded_to_three_bet_count"]) / faced_three_bets
+            if faced_three_bets > 0
+            else 0.0
+        )
+        cbet_opportunities = int(summary["cbet_opportunity_count"])
+        summary["cbet_rate"] = float(summary["cbet_count"]) / cbet_opportunities if cbet_opportunities > 0 else 0.0
+        saw_flop_count = int(summary["saw_flop_count"])
+        summary["wtsd"] = float(summary["showdown_count"]) / saw_flop_count if saw_flop_count > 0 else 0.0
+        showdown_count = int(summary["showdown_count"])
+        summary["wsd"] = float(summary["won_showdown_count"]) / showdown_count if showdown_count > 0 else 0.0
     return stats
 
 
 def merge_candidate_action_summaries(summaries: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     merged: Dict[str, Dict[str, Any]] = {}
+
+    def default_merged_summary() -> Dict[str, Any]:
+        return {
+            "action_total": 0,
+            "action_counts": {},
+            "street_action_counts": {},
+            "amount_total": 0,
+            "raise_amount_total": 0,
+            "raise_count": 0,
+            "postflop_raise_count": 0,
+            "postflop_call_count": 0,
+            "vpip_hands": 0,
+            "vpip_count": 0,
+            "pfr_count": 0,
+            "preflop_call_count": 0,
+            "three_bet_opportunity_count": 0,
+            "three_bet_count": 0,
+            "faced_three_bet_count": 0,
+            "folded_to_three_bet_count": 0,
+            "cbet_opportunity_count": 0,
+            "cbet_count": 0,
+            "saw_flop_count": 0,
+            "showdown_count": 0,
+            "won_showdown_count": 0,
+        }
+
     for action_summary in summaries:
         for candidate_id, row in dict(action_summary).items():
-            target = merged.setdefault(
-                str(candidate_id),
-                {
-                    "action_total": 0,
-                    "action_counts": {},
-                    "amount_total": 0,
-                    "raise_amount_total": 0,
-                    "raise_count": 0,
-                    "vpip_hands": 0,
-                    "vpip_count": 0,
-                },
-            )
+            target = merged.setdefault(str(candidate_id), default_merged_summary())
             target["action_total"] += int(row.get("action_total", 0) or 0)
             target["amount_total"] += int(row.get("amount_total", 0) or 0)
             target["raise_amount_total"] += int(row.get("raise_amount_total", 0) or 0)
             target["raise_count"] += int(row.get("raise_count", 0) or 0)
+            target["postflop_raise_count"] += int(row.get("postflop_raise_count", 0) or 0)
+            target["postflop_call_count"] += int(row.get("postflop_call_count", 0) or 0)
             target["vpip_hands"] += int(row.get("vpip_hands", 0) or 0)
             target["vpip_count"] += int(row.get("vpip_count", 0) or 0)
+            target["pfr_count"] += int(row.get("pfr_count", 0) or 0)
+            target["preflop_call_count"] += int(row.get("preflop_call_count", 0) or 0)
+            target["three_bet_opportunity_count"] += int(row.get("three_bet_opportunity_count", 0) or 0)
+            target["three_bet_count"] += int(row.get("three_bet_count", 0) or 0)
+            target["faced_three_bet_count"] += int(row.get("faced_three_bet_count", 0) or 0)
+            target["folded_to_three_bet_count"] += int(row.get("folded_to_three_bet_count", 0) or 0)
+            target["cbet_opportunity_count"] += int(row.get("cbet_opportunity_count", 0) or 0)
+            target["cbet_count"] += int(row.get("cbet_count", 0) or 0)
+            target["saw_flop_count"] += int(row.get("saw_flop_count", 0) or 0)
+            target["showdown_count"] += int(row.get("showdown_count", 0) or 0)
+            target["won_showdown_count"] += int(row.get("won_showdown_count", 0) or 0)
             for action, count in dict(row.get("action_counts", {})).items():
                 target["action_counts"][str(action)] = int(target["action_counts"].get(str(action), 0)) + int(count)
+            for street, street_counts in dict(row.get("street_action_counts", {})).items():
+                target_street = target["street_action_counts"].setdefault(str(street), {})
+                for action, count in dict(street_counts).items():
+                    target_street[str(action)] = int(target_street.get(str(action), 0)) + int(count)
 
     for row in merged.values():
         total = max(1, int(row["action_total"]))
@@ -402,6 +566,30 @@ def merge_candidate_action_summaries(summaries: Iterable[Dict[str, Any]]) -> Dic
         row["vpip"] = (
             float(row["vpip_count"]) / int(row["vpip_hands"]) if int(row["vpip_hands"]) > 0 else 0.0
         )
+        row["pfr"] = float(row["pfr_count"]) / int(row["vpip_hands"]) if int(row["vpip_hands"]) > 0 else 0.0
+        row["preflop_call_rate"] = (
+            float(row["preflop_call_count"]) / int(row["vpip_hands"]) if int(row["vpip_hands"]) > 0 else 0.0
+        )
+        postflop_call_count = int(row["postflop_call_count"])
+        row["postflop_aggression_factor"] = (
+            float(row["postflop_raise_count"]) / postflop_call_count
+            if postflop_call_count > 0
+            else float(row["postflop_raise_count"])
+        )
+        three_bet_opportunities = int(row["three_bet_opportunity_count"])
+        row["three_bet_rate"] = (
+            float(row["three_bet_count"]) / three_bet_opportunities if three_bet_opportunities > 0 else 0.0
+        )
+        faced_three_bets = int(row["faced_three_bet_count"])
+        row["fold_to_three_bet_rate"] = (
+            float(row["folded_to_three_bet_count"]) / faced_three_bets if faced_three_bets > 0 else 0.0
+        )
+        cbet_opportunities = int(row["cbet_opportunity_count"])
+        row["cbet_rate"] = float(row["cbet_count"]) / cbet_opportunities if cbet_opportunities > 0 else 0.0
+        saw_flop_count = int(row["saw_flop_count"])
+        row["wtsd"] = float(row["showdown_count"]) / saw_flop_count if saw_flop_count > 0 else 0.0
+        showdown_count = int(row["showdown_count"])
+        row["wsd"] = float(row["won_showdown_count"]) / showdown_count if showdown_count > 0 else 0.0
     return merged
 
 

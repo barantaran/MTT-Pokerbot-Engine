@@ -431,7 +431,15 @@ class Table:
             for pot in pot_manager.pots:
                 winner.win(pot.amount)
                 if pot.amount > 0:
-                    events.append({"type": "award_pot", "table_id": self.table_id, "player": winner.name, "amount": pot.amount})
+                    events.append({
+                        "type": "award_pot",
+                        "table_id": self.table_id,
+                        "hand_id": self.hand_id,
+                        "tournament_id": self.tournament_id,
+                        "player": winner.name,
+                        "amount": pot.amount,
+                        "showdown": False,
+                    })
             return
             
         # Draw remaining cards if they went all in early
@@ -444,7 +452,15 @@ class Table:
         player_ranks = {p: self.evaluator.evaluate(board, p.hole_cards) for p in active_players}
         
         for p in active_players:
-             events.append({"type": "showdown", "table_id": self.table_id, "player": p.name, "cards": p.hole_cards, "rank": player_ranks[p]})
+             events.append({
+                 "type": "showdown",
+                 "table_id": self.table_id,
+                 "hand_id": self.hand_id,
+                 "tournament_id": self.tournament_id,
+                 "player": p.name,
+                 "cards": p.hole_cards,
+                 "rank": player_ranks[p],
+             })
         
         # Distribute pots
         for pot in pot_manager.pots:
@@ -463,4 +479,12 @@ class Table:
             split_amount = pot.amount // len(winners)
             for w in winners:
                 w.win(split_amount)
-                events.append({"type": "award_pot", "table_id": self.table_id, "player": w.name, "amount": split_amount})
+                events.append({
+                    "type": "award_pot",
+                    "table_id": self.table_id,
+                    "hand_id": self.hand_id,
+                    "tournament_id": self.tournament_id,
+                    "player": w.name,
+                    "amount": split_amount,
+                    "showdown": True,
+                })

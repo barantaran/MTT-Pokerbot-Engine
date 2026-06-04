@@ -159,6 +159,58 @@ class EvolutionaryReducedMttTests(unittest.TestCase):
         self.assertEqual(summary["candidate_001"]["vpip_hands"], 3)
         self.assertEqual(summary["candidate_001"]["vpip_count"], 1)
         self.assertAlmostEqual(summary["candidate_001"]["vpip"], 1 / 3)
+        self.assertEqual(summary["candidate_001"]["pfr_count"], 1)
+        self.assertAlmostEqual(summary["candidate_001"]["pfr"], 1 / 3)
+        self.assertEqual(summary["candidate_001"]["preflop_call_count"], 1)
+        self.assertEqual(summary["candidate_001"]["postflop_call_count"], 1)
+        self.assertEqual(summary["candidate_001"]["postflop_raise_count"], 0)
+        self.assertEqual(summary["candidate_001"]["street_action_counts"]["preflop"], {"raise": 1, "call": 1, "check": 1})
+        self.assertEqual(summary["candidate_001"]["street_action_counts"]["flop"], {"call": 1})
+
+    def test_candidate_action_summary_reports_hud_context_stats(self):
+        events = [
+            {"type": "deal", "table_id": 1, "hand_id": 1, "tournament_id": 1, "player": "opener"},
+            {"type": "deal", "table_id": 1, "hand_id": 1, "tournament_id": 1, "player": "threebettor"},
+            {"type": "action", "table_id": 1, "hand_id": 1, "tournament_id": 1, "player": "opener", "action": "raise", "amount": 100, "street": "preflop", "call_amount": 20},
+            {"type": "action", "table_id": 1, "hand_id": 1, "tournament_id": 1, "player": "threebettor", "action": "raise", "amount": 300, "street": "preflop", "call_amount": 100},
+            {"type": "action", "table_id": 1, "hand_id": 1, "tournament_id": 1, "player": "opener", "action": "fold", "amount": 0, "street": "preflop", "call_amount": 200},
+            {"type": "deal", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "opener"},
+            {"type": "deal", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "caller"},
+            {"type": "action", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "opener", "action": "raise", "amount": 100, "street": "preflop", "call_amount": 20},
+            {"type": "action", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "caller", "action": "call", "amount": 100, "street": "preflop", "call_amount": 100},
+            {"type": "action", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "caller", "action": "check", "amount": 0, "street": "flop", "call_amount": 0},
+            {"type": "action", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "opener", "action": "raise", "amount": 120, "street": "flop", "call_amount": 0},
+            {"type": "action", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "caller", "action": "call", "amount": 120, "street": "flop", "call_amount": 120},
+            {"type": "showdown", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "opener"},
+            {"type": "showdown", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "caller"},
+            {"type": "award_pot", "table_id": 1, "hand_id": 2, "tournament_id": 1, "player": "opener", "amount": 500, "showdown": True},
+        ]
+
+        summary = summarize_candidate_actions(
+            events,
+            {
+                "opener": "opener",
+                "threebettor": "threebettor",
+                "caller": "caller",
+            },
+        )
+
+        self.assertEqual(summary["threebettor"]["three_bet_opportunity_count"], 1)
+        self.assertEqual(summary["threebettor"]["three_bet_count"], 1)
+        self.assertEqual(summary["threebettor"]["three_bet_rate"], 1.0)
+        self.assertEqual(summary["opener"]["faced_three_bet_count"], 1)
+        self.assertEqual(summary["opener"]["folded_to_three_bet_count"], 1)
+        self.assertEqual(summary["opener"]["fold_to_three_bet_rate"], 1.0)
+        self.assertEqual(summary["opener"]["cbet_opportunity_count"], 1)
+        self.assertEqual(summary["opener"]["cbet_count"], 1)
+        self.assertEqual(summary["opener"]["cbet_rate"], 1.0)
+        self.assertEqual(summary["opener"]["showdown_count"], 1)
+        self.assertEqual(summary["opener"]["won_showdown_count"], 1)
+        self.assertEqual(summary["opener"]["wsd"], 1.0)
+        self.assertEqual(summary["caller"]["saw_flop_count"], 1)
+        self.assertEqual(summary["caller"]["showdown_count"], 1)
+        self.assertEqual(summary["caller"]["wtsd"], 1.0)
+        self.assertEqual(summary["caller"]["wsd"], 0.0)
 
     def test_merge_candidate_action_summaries_recomputes_rates(self):
         merged = merge_candidate_action_summaries(
@@ -172,6 +224,11 @@ class EvolutionaryReducedMttTests(unittest.TestCase):
                         "raise_count": 1,
                         "vpip_hands": 2,
                         "vpip_count": 1,
+                        "pfr_count": 1,
+                        "preflop_call_count": 0,
+                        "postflop_raise_count": 1,
+                        "postflop_call_count": 1,
+                        "street_action_counts": {"preflop": {"raise": 1}, "flop": {"call": 1}},
                     }
                 },
                 {
@@ -183,6 +240,11 @@ class EvolutionaryReducedMttTests(unittest.TestCase):
                         "raise_count": 1,
                         "vpip_hands": 1,
                         "vpip_count": 1,
+                        "pfr_count": 0,
+                        "preflop_call_count": 1,
+                        "postflop_raise_count": 1,
+                        "postflop_call_count": 0,
+                        "street_action_counts": {"preflop": {"call": 1}, "turn": {"raise": 1}},
                     }
                 },
             ]
@@ -195,6 +257,14 @@ class EvolutionaryReducedMttTests(unittest.TestCase):
         self.assertEqual(merged["candidate_001"]["vpip_hands"], 3)
         self.assertEqual(merged["candidate_001"]["vpip_count"], 2)
         self.assertAlmostEqual(merged["candidate_001"]["vpip"], 2 / 3)
+        self.assertEqual(merged["candidate_001"]["pfr_count"], 1)
+        self.assertAlmostEqual(merged["candidate_001"]["pfr"], 1 / 3)
+        self.assertEqual(merged["candidate_001"]["preflop_call_count"], 1)
+        self.assertAlmostEqual(merged["candidate_001"]["preflop_call_rate"], 1 / 3)
+        self.assertEqual(merged["candidate_001"]["postflop_raise_count"], 2)
+        self.assertEqual(merged["candidate_001"]["postflop_call_count"], 1)
+        self.assertEqual(merged["candidate_001"]["postflop_aggression_factor"], 2.0)
+        self.assertEqual(merged["candidate_001"]["street_action_counts"]["preflop"], {"raise": 1, "call": 1})
 
     def test_mutate_checkpoint_changes_policy_head_only(self):
         engine_root = Path(__file__).resolve().parents[1]

@@ -1,0 +1,22 @@
+{
+  "run_id": "phase84_tournament_equity_vs_random_weighted_100mtt",
+  "observation_schema": "reduced_v6",
+  "random_weighted_count": 50,
+  "ev_bot_count": 50,
+  "ev_bot_strategy": "tournament_equity",
+  "mtt_count": 100,
+  "workers": 8,
+  "random_seed": 84001,
+  "deterministic": true,
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "model_use_preflop_spot_range": false,
+    "ev_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": 5000
+  }
+}

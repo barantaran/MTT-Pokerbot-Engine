@@ -30,7 +30,10 @@ from engine.evolutionary_reduced_mtt import (
     _write_json,
 )
 from engine.tournament import Tournament
-from players.ev_reaction_bot import EVInitiativeBot, EVReactionBot
+from players.ev_reaction_bot import EVFormulaBot, EVInitiativeBot, EVReactionBot
+from players.random_bot import RandomBot
+from players.tight_equity_bot import TightEquityBot
+from players.tournament_equity_bot import TournamentEquityBot
 
 
 def _ev_bots(count: int, *, use_preflop_spot_range: bool, strategy: str) -> tuple[List[Any], Dict[str, str]]:
@@ -39,6 +42,14 @@ def _ev_bots(count: int, *, use_preflop_spot_range: bool, strategy: str) -> tupl
         bot_class = EVInitiativeBot
         population = "ev_initiative"
         name_prefix = "EVInitiativeBot"
+    elif normalized_strategy in {"formula", "ev_formula", "bet_raise_ev"}:
+        bot_class = EVFormulaBot
+        population = "ev_formula"
+        name_prefix = "EVFormulaBot"
+    elif normalized_strategy in {"tournament", "tournament_equity", "mtt"}:
+        bot_class = TournamentEquityBot
+        population = "tournament_equity"
+        name_prefix = "TournamentEquityBot"
     else:
         bot_class = EVReactionBot
         population = "ev_reaction"
@@ -51,6 +62,44 @@ def _ev_bots(count: int, *, use_preflop_spot_range: bool, strategy: str) -> tupl
         bot.name = f"{name_prefix}_{index + 1:03d}"
         bots.append(bot)
         name_to_population[bot.name] = population
+    return bots, name_to_population
+
+
+def _dummy_random_bots(count: int) -> tuple[List[Any], Dict[str, str]]:
+    bots = []
+    name_to_population = {}
+    for index in range(int(count)):
+        bot = RandomBot()
+        bot.name = f"DummyRandomBot_{index + 1:03d}"
+        bots.append(bot)
+        name_to_population[bot.name] = "dummy_random"
+    return bots, name_to_population
+
+
+def _tight_equity_bots(count: int, *, use_preflop_spot_range: bool) -> tuple[List[Any], Dict[str, str]]:
+    bots = []
+    name_to_population = {}
+    for index in range(int(count)):
+        bot = TightEquityBot(use_preflop_spot_range=use_preflop_spot_range)
+        bot.name = f"TightEquityBot_{index + 1:03d}"
+        bots.append(bot)
+        name_to_population[bot.name] = "tight_equity"
+    return bots, name_to_population
+
+
+def _strict_tight_equity_bots(count: int, *, use_preflop_spot_range: bool) -> tuple[List[Any], Dict[str, str]]:
+    bots = []
+    name_to_population = {}
+    for index in range(int(count)):
+        bot = TightEquityBot(
+            use_preflop_spot_range=use_preflop_spot_range,
+            call_margin_shift=0.08,
+            raise_threshold_shift=0.05,
+            preflop_vpip_gate_shift=0.30,
+        )
+        bot.name = f"StrictTightEquityBot_{index + 1:03d}"
+        bots.append(bot)
+        name_to_population[bot.name] = "strict_tight_equity"
     return bots, name_to_population
 
 
@@ -91,7 +140,25 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
                 strategy=str(payload.get("ev_bot_strategy", "reaction")),
             )
             name_to_population.update(ev_names)
-            bots = [*model_bots, *ev_bots]
+            dummy_random_bots, dummy_random_names = _dummy_random_bots(int(payload.get("dummy_random_count", 0)))
+            name_to_population.update(dummy_random_names)
+            tight_equity_bots, tight_equity_names = _tight_equity_bots(
+                int(payload.get("tight_equity_count", 0)),
+                use_preflop_spot_range=bool(engine_config.get("tight_use_preflop_spot_range", False)),
+            )
+            name_to_population.update(tight_equity_names)
+            strict_tight_equity_bots, strict_tight_equity_names = _strict_tight_equity_bots(
+                int(payload.get("strict_tight_equity_count", 0)),
+                use_preflop_spot_range=bool(engine_config.get("strict_tight_use_preflop_spot_range", False)),
+            )
+            name_to_population.update(strict_tight_equity_names)
+            bots = [
+                *model_bots,
+                *ev_bots,
+                *dummy_random_bots,
+                *tight_equity_bots,
+                *strict_tight_equity_bots,
+            ]
             random.shuffle(bots)
             tournament = Tournament(bots, tournament_id=tournament_id)
             results, events = tournament.play()
@@ -129,6 +196,16 @@ def _population_for_name(name: str) -> str:
         return "ev_reaction"
     if name.startswith("EVInitiativeBot_"):
         return "ev_initiative"
+    if name.startswith("EVFormulaBot_"):
+        return "ev_formula"
+    if name.startswith("TournamentEquityBot_"):
+        return "tournament_equity"
+    if name.startswith("DummyRandomBot_"):
+        return "dummy_random"
+    if name.startswith("TightEquityBot_"):
+        return "tight_equity"
+    if name.startswith("StrictTightEquityBot_"):
+        return "strict_tight_equity"
     return "random_weighted"
 
 
@@ -142,6 +219,9 @@ def run_ev_reaction_evaluation(config: Dict[str, Any], *, engine_root: Path) -> 
     observation_size, observation_fields = observation_contract(basemodel_root, observation_schema)
     random_weighted_count = int(config.get("random_weighted_count", 50))
     ev_bot_count = int(config.get("ev_bot_count", 50))
+    dummy_random_count = int(config.get("dummy_random_count", 0))
+    tight_equity_count = int(config.get("tight_equity_count", 0))
+    strict_tight_equity_count = int(config.get("strict_tight_equity_count", 0))
     mtt_count = int(config.get("mtt_count", 1000))
     workers = max(1, min(int(config.get("workers", 8)), mtt_count))
     seed = int(config.get("random_seed", 69001))
@@ -201,6 +281,9 @@ def run_ev_reaction_evaluation(config: Dict[str, Any], *, engine_root: Path) -> 
                 "candidates": candidate_payload,
                 "entries_per_candidate": entries_per_candidate,
                 "ev_bot_count": ev_bot_count,
+                "dummy_random_count": dummy_random_count,
+                "tight_equity_count": tight_equity_count,
+                "strict_tight_equity_count": strict_tight_equity_count,
                 "engine_config": engine_config,
                 "basemodel_root": str(basemodel_root),
                 "engine_root": str(engine_root),
@@ -259,6 +342,9 @@ def run_ev_reaction_evaluation(config: Dict[str, Any], *, engine_root: Path) -> 
         "observation_fields": observation_fields,
         "random_weighted_count": random_weighted_count,
         "ev_bot_count": ev_bot_count,
+        "dummy_random_count": dummy_random_count,
+        "tight_equity_count": tight_equity_count,
+        "strict_tight_equity_count": strict_tight_equity_count,
         "ev_bot_strategy": str(config.get("ev_bot_strategy", "reaction")),
         "mtt_count": mtt_count,
         "workers": workers,

@@ -1,0 +1,25 @@
+{
+  "run_id": "phase89_ev_formula_vs_tight_metrics_16mtt",
+  "observation_schema": "reduced_v6",
+  "random_weighted_count": 0,
+  "ev_bot_count": 50,
+  "dummy_random_count": 0,
+  "tight_equity_count": 50,
+  "ev_bot_strategy": "formula",
+  "mtt_count": 16,
+  "workers": 8,
+  "random_seed": 89001,
+  "deterministic": true,
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "model_use_preflop_spot_range": false,
+    "ev_use_preflop_spot_range": false,
+    "tight_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": 5000
+  }
+}
