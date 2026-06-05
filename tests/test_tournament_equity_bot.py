@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from players.tournament_equity_bot import TournamentEquityBot
+from players.tournament_equity_bot import TournamentEquityBot, TournamentEquityBotV2
 
 
 def state(**overrides):
@@ -97,6 +97,26 @@ class TournamentEquityBotTests(unittest.TestCase):
         action = bot.get_action(state(hero_equity=0.95, stack_size=1000, call_amount=750, min_raise=20))
 
         self.assertEqual(action, ("raise", 250))
+
+    def test_v2_tightens_only_marginal_preflop_reraise(self):
+        old_bot = TournamentEquityBot()
+        new_bot = TournamentEquityBotV2()
+
+        old_action = old_bot.get_action(state(hero_equity=0.56, call_amount=40, preflop_spot_type="srp"))
+        new_action = new_bot.get_action(state(hero_equity=0.56, call_amount=40, preflop_spot_type="srp"))
+
+        self.assertEqual(old_action, ("raise", 60))
+        self.assertEqual(new_action, ("call", 0))
+
+    def test_v2_keeps_open_raise_threshold_unchanged(self):
+        old_bot = TournamentEquityBot()
+        new_bot = TournamentEquityBotV2()
+
+        old_action = old_bot.get_action(state(hero_equity=0.51, position="BTN", call_amount=0))
+        new_action = new_bot.get_action(state(hero_equity=0.51, position="BTN", call_amount=0))
+
+        self.assertEqual(old_action, ("raise", 44))
+        self.assertEqual(new_action, ("raise", 44))
 
 
 if __name__ == "__main__":

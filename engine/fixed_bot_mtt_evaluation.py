@@ -26,7 +26,7 @@ from players.aggressive_bot import AggressiveBot
 from players.ev_reaction_bot import EVInitiativeBot, EVReactionBot
 from players.noisy_equity_bot import NoisyEquityBot
 from players.tight_equity_bot import TightEquityBot
-from players.tournament_equity_bot import TournamentEquityBot
+from players.tournament_equity_bot import TournamentEquityBot, TournamentEquityBotV2
 
 
 def _build_bots(lineup: Dict[str, int], engine_config: Dict[str, Any]) -> tuple[List[Any], Dict[str, str]]:
@@ -48,6 +48,8 @@ def _build_bots(lineup: Dict[str, int], engine_config: Dict[str, Any]) -> tuple[
         add("ev_reaction", EVReactionBot(use_preflop_spot_range=use_ranges))
     for _ in range(int(lineup.get("tournament_equity", 0) or 0)):
         add("tournament_equity", TournamentEquityBot(use_preflop_spot_range=use_ranges))
+    for _ in range(int(lineup.get("tournament_equity_v2", 0) or 0)):
+        add("tournament_equity_v2", TournamentEquityBotV2(use_preflop_spot_range=use_ranges))
     for _ in range(int(lineup.get("tight_equity", 0) or 0)):
         add("tight_equity", TightEquityBot(use_preflop_spot_range=use_ranges))
     for _ in range(int(lineup.get("noisy_equity", 0) or 0)):
@@ -111,7 +113,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     write_events = bool(config.get("write_events", False))
 
     def name_to_population_from_results() -> Dict[str, str]:
-        prefixes = tuple(str(key) + "_" for key in lineup)
+        prefixes = tuple(sorted((str(key) + "_" for key in lineup), key=len, reverse=True))
         mapping = {}
         for row in all_results:
             name = str(row.get("name", ""))

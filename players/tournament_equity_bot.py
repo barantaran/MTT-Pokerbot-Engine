@@ -233,3 +233,32 @@ class TournamentEquityBot(Bot):
         bubble_pressure = 1.0 if paid_places < players_left <= paid_places + 2 else 0.0
         final_table_pressure = 0.5 if players_left <= 10 else 0.0
         return min(1.0, bubble_pressure + final_table_pressure + next_prize_gain * 4.0)
+
+
+class TournamentEquityBotV2(TournamentEquityBot):
+    """
+    TournamentEquityBot with one targeted adjustment: tighter preflop reraises.
+
+    The previous version had reasonable VPIP but elevated 3bet frequency. This
+    variant leaves calling, opening, postflop play, and jam rules unchanged, and
+    only raises the value threshold when reraising over an existing preflop open.
+    """
+
+    def __init__(self, *, use_preflop_spot_range: bool = True, preflop_reraise_tightness: float = 0.08):
+        super().__init__(use_preflop_spot_range=use_preflop_spot_range)
+        self.name = "TournamentEquityBotV2"
+        self.preflop_reraise_tightness = float(preflop_reraise_tightness)
+
+    def _raise_threshold(self, *, street, active_players, stack_bb, game_state, spot_type, position):
+        threshold = super()._raise_threshold(
+            street=street,
+            active_players=active_players,
+            stack_bb=stack_bb,
+            game_state=game_state,
+            spot_type=spot_type,
+            position=position,
+        )
+        call_amount = int(game_state.get("call_amount", 0) or 0)
+        if street == 0 and call_amount > 0 and spot_type in {"srp", "single_raised"}:
+            threshold += self.preflop_reraise_tightness
+        return max(0.36, min(0.90, threshold))
