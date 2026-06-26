@@ -59,6 +59,31 @@ class TablePreflopSpotTypeTests(unittest.TestCase):
         self.assertTrue(non_blind_preflop_states)
         self.assertTrue(all(state["call_amount"] > 0 for state in non_blind_preflop_states))
 
+    def test_bot_state_includes_public_stack_and_payout_context(self):
+        table = Table(table_id=1)
+        table.players_left = 3
+        table.paid_places = 2
+        table.payouts = {1: 0.65, 2: 0.35}
+        bots = [_RecordingBot(f"P{index}") for index in range(3)]
+        for index, bot in enumerate(bots):
+            player = PlayerState(bot, 1000 + index * 500)
+            player.is_active = True
+            table.add_player(player)
+
+        _active_players, _events = table.play_hand({"small": 10, "big": 20})
+
+        recorded_states = [state for bot in bots for state in bot.states]
+        self.assertTrue(recorded_states)
+        for state in recorded_states:
+            self.assertIn("table_stacks", state)
+            self.assertIn("hero_table_index", state)
+            self.assertIn("payouts", state)
+            self.assertEqual(state["payouts"], {1: 0.65, 2: 0.35})
+            self.assertEqual(len(state["table_stacks"]), 3)
+            self.assertGreaterEqual(state["hero_table_index"], 0)
+            self.assertLess(state["hero_table_index"], 3)
+            self.assertNotIn("opponent_hole_cards", state)
+
     def test_separates_unknown_from_limped(self):
         table = self._table()
 

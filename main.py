@@ -11,6 +11,7 @@ from engine.player_interface import Bot
 from engine.tournament import Tournament
 
 ALLOWED_MODULES = {
+    '__future__',
     'math',
     'random',
     'numpy',
@@ -18,6 +19,7 @@ ALLOWED_MODULES = {
     'engine.player_interface',
     'engine.openai_bot_support',
     'engine.pokerstove_equity',
+    'engine.icm',
 }
 
 def load_bots(players_dir="players"):

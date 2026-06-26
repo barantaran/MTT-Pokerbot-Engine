@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from players.tournament_equity_bot import TournamentEquityBot, TournamentEquityBotV2
+from players.tournament_equity_bot import TournamentEquityBot, TournamentEquityBotV2, TournamentICMEquityBot
 
 
 def state(**overrides):
@@ -117,6 +117,56 @@ class TournamentEquityBotTests(unittest.TestCase):
 
         self.assertEqual(old_action, ("raise", 44))
         self.assertEqual(new_action, ("raise", 44))
+
+    def test_icm_variant_keeps_tournament_value_sizing(self):
+        bot = TournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(hero_equity=0.80, stack_size=3000, call_amount=0))
+
+        self.assertEqual(action, ("raise", 46))
+
+    def test_icm_variant_fallback_pressure_folds_bubble_call(self):
+        bot = TournamentICMEquityBot()
+
+        action = bot.get_action(
+            state(
+                pot_size=100,
+                call_amount=50,
+                hero_equity=0.39,
+                players_left=31,
+                paid_places=30,
+                itm_distance=0.01,
+                next_prize_gain_pct=0.02,
+            )
+        )
+
+        self.assertEqual(action, ("fold", 0))
+
+    def test_icm_variant_exact_pressure_uses_calculator(self):
+        bot = TournamentICMEquityBot()
+
+        with patch(
+            "players.tournament_equity_bot.calculate_exact_icm",
+            side_effect=[
+                [0.20, 0.20, 0.15],
+                [0.20, 0.20, 0.00],
+                [0.20, 0.20, 0.16],
+            ],
+        ) as icm:
+            pressure = bot._payout_pressure(
+                state(
+                    stack_size=120,
+                    players_left=3,
+                    paid_places=2,
+                    table_stacks=[1000, 1000, 120],
+                    hero_table_index=2,
+                    payouts={1: 0.65, 2: 0.35},
+                    itm_distance=0.0,
+                )
+            )
+
+        self.assertGreater(pressure, 0.7)
+        self.assertEqual(icm.call_count, 3)
 
 
 if __name__ == "__main__":

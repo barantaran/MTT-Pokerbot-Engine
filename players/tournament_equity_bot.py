@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from engine.icm import calculate_exact_icm
 from engine.player_interface import Bot
 from engine.pokerstove_equity import estimate_equity, pot_odds
 
@@ -262,3 +263,92 @@ class TournamentEquityBotV2(TournamentEquityBot):
         if street == 0 and call_amount > 0 and spot_type in {"srp", "single_raised"}:
             threshold += self.preflop_reraise_tightness
         return max(0.36, min(0.90, threshold))
+
+
+class TournamentICMEquityBot(TournamentEquityBot):
+    """
+    TournamentEquityBot with exact ICM pressure when full-table payout state is visible.
+
+    This keeps TournamentEquityBot's call, raise, jam, position, and sizing logic.
+    The only behavioral change is replacing heuristic payout pressure with exact
+    ICM pressure once the remaining field is represented by the current table.
+    """
+
+    def __init__(self, *, use_preflop_spot_range: bool = True, use_icm: bool = True, icm_strength: float = 1.0):
+        super().__init__(use_preflop_spot_range=use_preflop_spot_range)
+        self.name = "TournamentICMEquityBot"
+        self.use_icm = bool(use_icm)
+        self.icm_strength = max(0.0, float(icm_strength))
+
+    def _payout_pressure(self, game_state):
+        if not self.use_icm or self.icm_strength <= 0:
+            return super()._payout_pressure(game_state)
+
+        exact_pressure = self._exact_icm_pressure(game_state)
+        if exact_pressure is not None:
+            return min(1.0, exact_pressure * self.icm_strength)
+        return min(1.0, self._fallback_icm_pressure(game_state) * self.icm_strength)
+
+    def _exact_icm_pressure(self, game_state):
+        table_stacks = game_state.get("table_stacks")
+        payouts = game_state.get("payouts")
+        hero_index = game_state.get("hero_table_index")
+        players_left = int(game_state.get("players_left", 0) or 0)
+        if not isinstance(table_stacks, list) or not table_stacks:
+            return None
+        if players_left != len(table_stacks):
+            return None
+        if hero_index is None:
+            return None
+
+        try:
+            hero_index = int(hero_index)
+            stacks = [float(stack) for stack in table_stacks]
+            payout_values = self._payout_values(payouts)
+            hero_stack = max(0.0, float(game_state.get("stack_size", 0) or 0.0))
+        except (TypeError, ValueError):
+            return None
+        if hero_index < 0 or hero_index >= len(stacks) or hero_stack <= 0 or not payout_values:
+            return None
+
+        total_chips = sum(stacks)
+        if total_chips <= 0:
+            return None
+
+        try:
+            current_icm = calculate_exact_icm(stacks, payout_values)[hero_index]
+            loss_stacks = list(stacks)
+            loss_stacks[hero_index] = 0.0
+            loss_icm = calculate_exact_icm(loss_stacks, payout_values)[hero_index]
+            gain_stacks = list(stacks)
+            gain_stacks[hero_index] += min(hero_stack, max(1.0, total_chips * 0.05))
+            gain_icm = calculate_exact_icm(gain_stacks, payout_values)[hero_index]
+        except ValueError:
+            return None
+
+        downside = max(0.0, current_icm - loss_icm)
+        upside = max(0.0, gain_icm - current_icm)
+        if downside <= 0:
+            return 0.0
+
+        bubble_bonus = super()._payout_pressure(game_state) * 0.30
+        asymmetry = downside / max(downside + upside, 1e-9)
+        return max(0.0, min(1.0, (asymmetry - 0.50) * 1.45 + bubble_bonus))
+
+    def _payout_values(self, payouts):
+        if isinstance(payouts, dict):
+            return [float(value) for _place, value in sorted(payouts.items(), key=lambda item: int(item[0]))]
+        if isinstance(payouts, list):
+            return [float(value) for value in payouts]
+        return []
+
+    def _fallback_icm_pressure(self, game_state):
+        heuristic = super()._payout_pressure(game_state)
+        itm_distance = max(0.0, min(1.0, float(game_state.get("itm_distance", 1.0) or 0.0)))
+        players_left = int(game_state.get("players_left", 0) or 0)
+        paid_places = int(game_state.get("paid_places", 0) or 0)
+
+        pressure = heuristic
+        if paid_places > 0 and players_left > paid_places:
+            pressure += max(0.0, 1.0 - itm_distance) * 0.20
+        return max(0.0, min(1.0, pressure))
