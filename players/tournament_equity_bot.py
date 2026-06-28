@@ -88,9 +88,6 @@ class TournamentEquityBot(Bot):
             spot_type=spot_type,
         )
 
-        if call_amount > 0 and equity < required_equity + call_margin:
-            return ("fold", 0)
-
         if can_raise and self._should_jam(
             equity=equity,
             jam_threshold=jam_threshold,
@@ -99,6 +96,9 @@ class TournamentEquityBot(Bot):
             call_amount=call_amount,
         ):
             return ("raise", max_raise_extra)
+
+        if call_amount > 0 and equity < required_equity + call_margin:
+            return ("fold", 0)
 
         if can_raise and equity >= raise_threshold:
             return ("raise", self._raise_size(
@@ -352,3 +352,159 @@ class TournamentICMEquityBot(TournamentEquityBot):
         if paid_places > 0 and players_left > paid_places:
             pressure += max(0.0, 1.0 - itm_distance) * 0.20
         return max(0.0, min(1.0, pressure))
+
+
+class AdaptiveTournamentICMEquityBot(TournamentICMEquityBot):
+    """
+    ICM tournament bot that adjusts modestly to public table behavior.
+
+    The bot uses aggregate table stats only. Low-sample tables behave like the
+    base TournamentICMEquityBot.
+    """
+
+    def __init__(self, *, use_preflop_spot_range: bool = True, use_icm: bool = True, icm_strength: float = 1.0):
+        super().__init__(
+            use_preflop_spot_range=use_preflop_spot_range,
+            use_icm=use_icm,
+            icm_strength=icm_strength,
+        )
+        self.name = "AdaptiveTournamentICMEquityBot"
+
+    def _call_margin(self, *, street, active_players, stack_bb, game_state, spot_type, position):
+        margin = super()._call_margin(
+            street=street,
+            active_players=active_players,
+            stack_bb=stack_bb,
+            game_state=game_state,
+            spot_type=spot_type,
+            position=position,
+        )
+        stats = self._table_stats(game_state)
+        if not stats:
+            return margin
+
+        quality = stats["sample_quality"]
+        pressure_spot = spot_type in {"srp", "single_raised", "three_bet", "3bet", "four_bet", "4bet", "all_in_pressure"}
+        loose_passive = max(0.0, stats["vpip"] - 0.42) * max(0.0, 0.16 - stats["pfr"])
+        aggressive = max(0.0, stats["three_bet_rate"] - 0.20)
+
+        margin -= min(0.010, loose_passive * 0.20) * quality
+        if pressure_spot:
+            margin += min(0.020, aggressive * 0.20) * quality
+        if street == 0 and position in {"BTN", "CO", "BB"} and stats["vpip"] >= 0.44 and stats["pfr"] <= 0.14:
+            margin -= 0.004 * quality
+        return max(-0.02, min(0.25, margin))
+
+    def _raise_threshold(self, *, street, active_players, stack_bb, game_state, spot_type, position):
+        threshold = super()._raise_threshold(
+            street=street,
+            active_players=active_players,
+            stack_bb=stack_bb,
+            game_state=game_state,
+            spot_type=spot_type,
+            position=position,
+        )
+        stats = self._table_stats(game_state)
+        if not stats:
+            return threshold
+
+        quality = stats["sample_quality"]
+        call_amount = int(game_state.get("call_amount", 0) or 0)
+        raised_preflop = street == 0 and call_amount > 0
+        loose_passive = stats["vpip"] >= 0.44 and stats["pfr"] <= 0.14
+        aggressive = stats["three_bet_rate"] >= 0.22 or stats["pfr"] >= 0.32
+
+        if loose_passive:
+            threshold -= 0.010 * quality
+        if raised_preflop and aggressive:
+            threshold += 0.030 * quality
+        return max(0.36, min(0.90, threshold))
+
+    def _table_stats(self, game_state):
+        stats = game_state.get("table_stats")
+        if not isinstance(stats, dict):
+            return None
+        try:
+            quality = max(0.0, min(1.0, float(stats.get("sample_quality", 0.0) or 0.0)))
+            if quality < 0.50:
+                return None
+            return {
+                "sample_quality": quality,
+                "vpip": max(0.0, min(1.0, float(stats.get("vpip", 0.0) or 0.0))),
+                "pfr": max(0.0, min(1.0, float(stats.get("pfr", 0.0) or 0.0))),
+                "three_bet_rate": max(0.0, min(1.0, float(stats.get("three_bet_rate", 0.0) or 0.0))),
+            }
+        except (TypeError, ValueError):
+            return None
+
+
+class ButtonStealTournamentICMEquityBot(AdaptiveTournamentICMEquityBot):
+    """
+    ICM tournament bot with one exploit: wider unopened button steals.
+
+    This variant keeps the base ICM discipline everywhere else. It only lowers
+    the preflop raise threshold when the pot is unopened, hero is on the button,
+    the table is tight/passive enough to imply blind overfolding, and the open
+    size risks only a small share of the stack.
+    """
+
+    def __init__(self, *, use_preflop_spot_range: bool = True, use_icm: bool = True, icm_strength: float = 1.0):
+        super().__init__(
+            use_preflop_spot_range=use_preflop_spot_range,
+            use_icm=use_icm,
+            icm_strength=icm_strength,
+        )
+        self.name = "ButtonStealTournamentICMEquityBot"
+
+    def _raise_threshold(self, *, street, active_players, stack_bb, game_state, spot_type, position):
+        threshold = super()._raise_threshold(
+            street=street,
+            active_players=active_players,
+            stack_bb=stack_bb,
+            game_state=game_state,
+            spot_type=spot_type,
+            position=position,
+        )
+        if not self._is_button_steal_spot(
+            street=street,
+            active_players=active_players,
+            stack_bb=stack_bb,
+            game_state=game_state,
+            spot_type=spot_type,
+            position=position,
+        ):
+            return threshold
+
+        stats = self._table_stats(game_state)
+        quality = stats["sample_quality"] if stats else 0.0
+        tightness = max(0.0, 0.30 - stats["vpip"]) + max(0.0, 0.16 - stats["pfr"]) if stats else 0.0
+        steal_discount = min(0.040, 0.018 + tightness * 0.12) * quality
+        return max(0.36, min(0.90, threshold - steal_discount))
+
+    def _is_button_steal_spot(self, *, street, active_players, stack_bb, game_state, spot_type, position):
+        if street != 0 or position != "BTN":
+            return False
+        if int(game_state.get("call_amount", 0) or 0) != 0:
+            return False
+        if spot_type not in {"unknown", "limped"}:
+            return False
+        if active_players > 4:
+            return False
+        if stack_bb < 16:
+            return False
+        if self._payout_pressure(game_state) > 0.45:
+            return False
+
+        stats = self._table_stats(game_state)
+        if not stats:
+            return False
+        if stats["vpip"] > 0.30 or stats["pfr"] > 0.16 or stats["three_bet_rate"] > 0.08:
+            return False
+
+        stack_size = int(game_state.get("stack_size", 0) or 0)
+        min_raise = int(game_state.get("min_raise", 0) or 0)
+        big_blind = int(game_state.get("blinds", {}).get("big", 1) or 1)
+        if stack_size <= 0 or min_raise <= 0:
+            return False
+        open_size = max(min_raise, int(self._preflop_open_bb(position=position, spot_type=spot_type) * big_blind))
+        return open_size / float(stack_size) <= 0.14

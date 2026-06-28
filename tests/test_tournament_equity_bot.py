@@ -3,7 +3,13 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from players.tournament_equity_bot import TournamentEquityBot, TournamentEquityBotV2, TournamentICMEquityBot
+from players.tournament_equity_bot import (
+    AdaptiveTournamentICMEquityBot,
+    ButtonStealTournamentICMEquityBot,
+    TournamentEquityBot,
+    TournamentEquityBotV2,
+    TournamentICMEquityBot,
+)
 
 
 def state(**overrides):
@@ -125,6 +131,115 @@ class TournamentEquityBotTests(unittest.TestCase):
 
         self.assertEqual(action, ("raise", 46))
 
+    def test_base_tournament_bot_does_not_bluff_minor_raise_miss(self):
+        bot = TournamentEquityBot()
+
+        action = bot.get_action(state(hero_equity=0.50, position="HJ", call_amount=0))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_icm_variant_does_not_bluff_preflop_minor_open_raise_miss(self):
+        bot = TournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(hero_equity=0.50, position="HJ", call_amount=0))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_icm_variant_does_not_bluff_large_equity_miss(self):
+        bot = TournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            board_cards=[2, 3, 4, 5, 6],
+            hero_equity=0.55,
+            active_players=2,
+            call_amount=0,
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_icm_variant_does_not_bluff_river_minor_bet_miss_heads_up(self):
+        bot = TournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            board_cards=[2, 3, 4, 5, 6],
+            pot_size=100,
+            min_raise=20,
+            stack_size=1000,
+            hero_equity=0.64,
+            active_players=2,
+            call_amount=0,
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_icm_variant_does_not_bluff_river_multiway(self):
+        bot = TournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            board_cards=[2, 3, 4, 5, 6],
+            hero_equity=0.64,
+            active_players=3,
+            call_amount=0,
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_icm_variant_does_not_bluff_river_facing_bet(self):
+        bot = TournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            board_cards=[2, 3, 4, 5, 6],
+            pot_size=100,
+            call_amount=50,
+            min_raise=20,
+            stack_size=1000,
+            hero_equity=0.64,
+            active_players=2,
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_icm_variant_does_not_bluff_river_under_high_payout_pressure(self):
+        bot = TournamentICMEquityBot()
+
+        action = bot.get_action(state(
+            board_cards=[2, 3, 4, 5, 6],
+            hero_equity=0.64,
+            active_players=2,
+            call_amount=0,
+            players_left=31,
+            paid_places=30,
+            itm_distance=0.01,
+            next_prize_gain_pct=0.02,
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_icm_variant_does_not_bluff_flop_or_turn(self):
+        bot = TournamentICMEquityBot(use_icm=False)
+
+        flop_action = bot.get_action(state(
+            board_cards=[2, 3, 4],
+            pot_size=100,
+            call_amount=0,
+            min_raise=20,
+            stack_size=1000,
+            hero_equity=0.57,
+            active_players=2,
+        ))
+        turn_action = bot.get_action(state(
+            board_cards=[2, 3, 4, 5],
+            pot_size=100,
+            call_amount=0,
+            min_raise=20,
+            stack_size=1000,
+            hero_equity=0.60,
+            active_players=2,
+        ))
+
+        self.assertEqual(flop_action, ("call", 0))
+        self.assertEqual(turn_action, ("call", 0))
+
     def test_icm_variant_fallback_pressure_folds_bubble_call(self):
         bot = TournamentICMEquityBot()
 
@@ -167,6 +282,146 @@ class TournamentEquityBotTests(unittest.TestCase):
 
         self.assertGreater(pressure, 0.7)
         self.assertEqual(icm.call_count, 3)
+
+    def test_adaptive_icm_ignores_low_sample_table_stats(self):
+        bot = AdaptiveTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.49,
+            position="BTN",
+            table_stats={
+                "sample_quality": 0.10,
+                "vpip": 0.60,
+                "pfr": 0.05,
+                "three_bet_rate": 0.0,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_adaptive_icm_does_not_widen_only_because_table_is_tight(self):
+        bot = AdaptiveTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.48,
+            position="BTN",
+            call_amount=0,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_adaptive_icm_value_raises_extreme_loose_passive_table(self):
+        bot = AdaptiveTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.535,
+            position="HJ",
+            call_amount=0,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.58,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("raise", 46))
+
+    def test_adaptive_icm_tightens_reraise_on_aggressive_table(self):
+        bot = AdaptiveTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.55,
+            call_amount=40,
+            preflop_spot_type="srp",
+            position="HJ",
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.34,
+                "pfr": 0.34,
+                "three_bet_rate": 0.24,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_button_steal_icm_widens_unopened_button_on_tight_table(self):
+        bot = ButtonStealTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.47,
+            position="BTN",
+            call_amount=0,
+            active_players=3,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("raise", 44))
+
+    def test_button_steal_icm_does_not_widen_cutoff(self):
+        bot = ButtonStealTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.48,
+            position="CO",
+            call_amount=0,
+            active_players=4,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_button_steal_icm_does_not_widen_without_table_sample(self):
+        bot = ButtonStealTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.47,
+            position="BTN",
+            call_amount=0,
+            active_players=3,
+            table_stats={
+                "sample_quality": 0.20,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_button_steal_icm_does_not_widen_on_aggressive_table(self):
+        bot = ButtonStealTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.47,
+            position="BTN",
+            call_amount=0,
+            active_players=3,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.28,
+                "pfr": 0.18,
+                "three_bet_rate": 0.10,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
 
 
 if __name__ == "__main__":

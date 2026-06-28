@@ -6,3 +6,5 @@ def test_load_bots_includes_icm_tight_bot():
 
     assert "ICMTightBot" in bot_names
     assert "TournamentICMEquityBot" in bot_names
+    assert "AdaptiveTournamentICMEquityBot" in bot_names
+    assert "ButtonStealTournamentICMEquityBot" in bot_names

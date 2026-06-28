@@ -78,11 +78,33 @@ class TablePreflopSpotTypeTests(unittest.TestCase):
             self.assertIn("table_stacks", state)
             self.assertIn("hero_table_index", state)
             self.assertIn("payouts", state)
+            self.assertIn("table_stats", state)
             self.assertEqual(state["payouts"], {1: 0.65, 2: 0.35})
             self.assertEqual(len(state["table_stacks"]), 3)
             self.assertGreaterEqual(state["hero_table_index"], 0)
             self.assertLess(state["hero_table_index"], 3)
             self.assertNotIn("opponent_hole_cards", state)
+            self.assertNotIn("cards", state["table_stats"])
+
+    def test_table_stats_are_public_and_chronological(self):
+        table = Table(table_id=1)
+        bots = [_RecordingBot(f"P{index}") for index in range(3)]
+        for bot in bots:
+            player = PlayerState(bot, 1000)
+            player.is_active = True
+            table.add_player(player)
+
+        _active_players, _events = table.play_hand({"small": 10, "big": 20})
+
+        recorded_states = [state for bot in bots for state in bot.states]
+        self.assertTrue(recorded_states)
+        first_state = next(state for state in recorded_states if state["table_stats"]["action_total"] == 0)
+        later_state = next(state for state in recorded_states if state["table_stats"]["action_total"] > 0)
+
+        self.assertEqual(first_state["table_stats"]["hands_observed"], 1)
+        self.assertEqual(first_state["table_stats"]["player_hands_observed"], 3)
+        self.assertEqual(first_state["table_stats"]["action_total"], 0)
+        self.assertGreater(later_state["table_stats"]["action_total"], 0)
 
     def test_separates_unknown_from_limped(self):
         table = self._table()

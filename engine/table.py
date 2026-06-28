@@ -4,6 +4,7 @@ from treys import Deck, Evaluator, Card
 from engine.player_state import PlayerState
 from engine.pot import PotManager
 from engine.config import config
+from engine.game_stats import TableStatsTracker
 import concurrent.futures
 
 
@@ -32,6 +33,7 @@ class Table:
         self.paid_places = 0
         self.payouts: Dict[int, float] = {}
         self.current_preflop_spot_type = PREFLOP_SPOT_UNKNOWN
+        self.stats_tracker = TableStatsTracker()
 
     def add_player(self, player: PlayerState):
         self.players.append(player)
@@ -93,13 +95,15 @@ class Table:
             p.setup_new_hand()
         self.current_preflop_spot_type = PREFLOP_SPOT_UNKNOWN
             
-        events.append({
+        hand_start_event = {
             "type": "hand_start",
             "table_id": self.table_id,
             "hand_id": self.hand_id,
             "tournament_id": self.tournament_id,
             "players": [{"name": p.name, "stack": p.stack} for p in self.players]
-        })
+        }
+        events.append(hand_start_event)
+        self.stats_tracker.observe_event(hand_start_event)
             
         deck = Deck()
         board = []
@@ -287,6 +291,7 @@ class Table:
                         "tournament_id": self.tournament_id,
                         "position": self._position_label(idx, num_players),
                         "preflop_spot_type": preflop_spot_type,
+                        "table_stats": self.stats_tracker.snapshot(),
                     }
                     
                     try:
@@ -307,7 +312,7 @@ class Table:
 
                     if action == "fold" and call_amount > 0:
                         player.is_active = False
-                        events.append(self._action_event(
+                        event = self._action_event(
                             player.name,
                             "fold",
                             0,
@@ -315,10 +320,12 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
-                        ))
+                        )
+                        events.append(event)
+                        self.stats_tracker.observe_event(event)
                     elif action == "call":
                         actual_bet = player.bet(call_amount)
-                        events.append(self._action_event(
+                        event = self._action_event(
                             player.name,
                             "call",
                             actual_bet,
@@ -326,7 +333,9 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
-                        ))
+                        )
+                        events.append(event)
+                        self.stats_tracker.observe_event(event)
                         if not board and current_highest_bet <= blinds["big"] and actual_bet > 0:
                             preflop_limp_count += 1
                             self.current_preflop_spot_type = PREFLOP_SPOT_LIMPED
@@ -338,7 +347,7 @@ class Table:
                         total_to_put_in = call_amount + amount
                         actual_bet = player.bet(total_to_put_in)
                         
-                        events.append(self._action_event(
+                        event = self._action_event(
                             player.name,
                             "raise",
                             actual_bet,
@@ -346,7 +355,9 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
-                        ))
+                        )
+                        events.append(event)
+                        self.stats_tracker.observe_event(event)
 
                         if player.current_bet > current_highest_bet:
                             # Valid raise increases the highest bet
@@ -370,7 +381,7 @@ class Table:
                         # Default check/fold
                         if call_amount > 0:
                             player.is_active = False
-                            events.append(self._action_event(
+                            event = self._action_event(
                                 player.name,
                                 "fold",
                                 0,
@@ -378,9 +389,11 @@ class Table:
                                 position=action_position,
                                 call_amount=call_amount,
                                 pot_size=action_pot_size,
-                            ))
+                            )
+                            events.append(event)
+                            self.stats_tracker.observe_event(event)
                         else:
-                            events.append(self._action_event(
+                            event = self._action_event(
                                 player.name,
                                 "check",
                                 0,
@@ -388,7 +401,9 @@ class Table:
                                 position=action_position,
                                 call_amount=call_amount,
                                 pot_size=action_pot_size,
-                            ))
+                            )
+                            events.append(event)
+                            self.stats_tracker.observe_event(event)
                             
                     player.has_acted = True
             
