@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from engine.bot_tools import DecisionContext, build_bot_tools
 from engine.icm import calculate_exact_icm
 from engine.player_interface import Bot
 from engine.pokerstove_equity import estimate_equity, pot_odds
@@ -31,9 +32,19 @@ class TournamentEquityBot(Bot):
     the stack is short or the call already commits most of the stack.
     """
 
-    def __init__(self, *, use_preflop_spot_range: bool = True):
+    def __init__(
+        self,
+        *,
+        use_preflop_spot_range: bool = True,
+        range_profile: str = "legacy",
+        range_influence=1.0,
+        tools=None,
+    ):
         super().__init__("TournamentEquityBot")
         self.use_preflop_spot_range = bool(use_preflop_spot_range)
+        self.range_profile = str(range_profile or "legacy")
+        self.range_influence = range_influence
+        self.tools = build_bot_tools(tools)
 
     def get_action(self, game_state):
         hole_cards = game_state.get("hole_cards", [])
@@ -63,8 +74,21 @@ class TournamentEquityBot(Bot):
                 opponent_range_pct=game_state.get("opponent_range_pct"),
                 preflop_spot_type=spot_type,
                 use_preflop_spot_range=self.use_preflop_spot_range,
+                table_stats=game_state.get("table_stats"),
+                opponent_stats=game_state.get("opponent_stats"),
+                opponent_position=game_state.get("opponent_position"),
+                opponent_stack_bb=game_state.get("opponent_stack_bb"),
+                range_profile=self.range_profile,
+                position=position,
+                stack_bb=stack_bb,
+                players_left=game_state.get("players_left"),
+                starting_field=game_state.get("starting_field"),
+                paid_places=game_state.get("paid_places"),
+                itm_distance=game_state.get("itm_distance"),
+                range_influence=self.range_influence,
             )
 
+        payout_pressure = self._payout_pressure(game_state)
         call_margin = self._call_margin(
             street=street,
             active_players=active_players,
@@ -87,6 +111,38 @@ class TournamentEquityBot(Bot):
             game_state=game_state,
             spot_type=spot_type,
         )
+        context = self._apply_tools(
+            DecisionContext(
+                equity=equity,
+                required_equity=required_equity,
+                call_margin=call_margin,
+                raise_threshold=raise_threshold,
+                jam_threshold=jam_threshold,
+                street=street,
+                active_players=active_players,
+                stack_bb=stack_bb,
+                spot_type=spot_type,
+                position=position,
+                call_amount=call_amount,
+                stack_size=stack_size,
+                min_raise=min_raise,
+                big_blind=big_blind,
+                payout_pressure=payout_pressure,
+                open_size=self._open_size(
+                    street=street,
+                    big_blind=big_blind,
+                    min_raise=min_raise,
+                    spot_type=spot_type,
+                    position=position,
+                ),
+            ),
+            game_state,
+        )
+        equity = context.equity
+        required_equity = context.required_equity
+        call_margin = context.call_margin
+        raise_threshold = context.raise_threshold
+        jam_threshold = context.jam_threshold
 
         if can_raise and self._should_jam(
             equity=equity,
@@ -172,11 +228,27 @@ class TournamentEquityBot(Bot):
 
     def _raise_size(self, *, street, pot_size, big_blind, min_raise, max_raise_extra, spot_type, position):
         if street == 0:
-            open_bb = self._preflop_open_bb(position=position, spot_type=spot_type)
-            target = max(min_raise, int(open_bb * big_blind))
+            target = self._open_size(
+                street=street,
+                big_blind=big_blind,
+                min_raise=min_raise,
+                spot_type=spot_type,
+                position=position,
+            )
         else:
             target = max(min_raise, int(max(big_blind, pot_size * 0.60)))
         return min(max_raise_extra, target)
+
+    def _apply_tools(self, context, game_state):
+        for tool in self.tools:
+            context = tool.apply(context, game_state)
+        return context
+
+    def _open_size(self, *, street, big_blind, min_raise, spot_type, position):
+        if street != 0:
+            return max(0, int(min_raise or 0))
+        open_bb = self._preflop_open_bb(position=position, spot_type=spot_type)
+        return max(int(min_raise or 0), int(open_bb * big_blind))
 
     def _position_call_adjustment(self, *, position, spot_type):
         if spot_type in {"three_bet", "3bet", "four_bet", "4bet", "five_bet_plus", "five_bet", "5bet", "all_in_pressure"}:
@@ -245,8 +317,21 @@ class TournamentEquityBotV2(TournamentEquityBot):
     only raises the value threshold when reraising over an existing preflop open.
     """
 
-    def __init__(self, *, use_preflop_spot_range: bool = True, preflop_reraise_tightness: float = 0.08):
-        super().__init__(use_preflop_spot_range=use_preflop_spot_range)
+    def __init__(
+        self,
+        *,
+        use_preflop_spot_range: bool = True,
+        range_profile: str = "legacy",
+        range_influence=1.0,
+        preflop_reraise_tightness: float = 0.08,
+        tools=None,
+    ):
+        super().__init__(
+            use_preflop_spot_range=use_preflop_spot_range,
+            range_profile=range_profile,
+            range_influence=range_influence,
+            tools=tools,
+        )
         self.name = "TournamentEquityBotV2"
         self.preflop_reraise_tightness = float(preflop_reraise_tightness)
 
@@ -274,8 +359,22 @@ class TournamentICMEquityBot(TournamentEquityBot):
     ICM pressure once the remaining field is represented by the current table.
     """
 
-    def __init__(self, *, use_preflop_spot_range: bool = True, use_icm: bool = True, icm_strength: float = 1.0):
-        super().__init__(use_preflop_spot_range=use_preflop_spot_range)
+    def __init__(
+        self,
+        *,
+        use_preflop_spot_range: bool = True,
+        range_profile: str = "legacy",
+        range_influence=1.0,
+        use_icm: bool = True,
+        icm_strength: float = 1.0,
+        tools=None,
+    ):
+        super().__init__(
+            use_preflop_spot_range=use_preflop_spot_range,
+            range_profile=range_profile,
+            range_influence=range_influence,
+            tools=tools,
+        )
         self.name = "TournamentICMEquityBot"
         self.use_icm = bool(use_icm)
         self.icm_strength = max(0.0, float(icm_strength))
@@ -362,11 +461,23 @@ class AdaptiveTournamentICMEquityBot(TournamentICMEquityBot):
     base TournamentICMEquityBot.
     """
 
-    def __init__(self, *, use_preflop_spot_range: bool = True, use_icm: bool = True, icm_strength: float = 1.0):
+    def __init__(
+        self,
+        *,
+        use_preflop_spot_range: bool = True,
+        range_profile: str = "legacy",
+        range_influence=1.0,
+        use_icm: bool = True,
+        icm_strength: float = 1.0,
+        tools=None,
+    ):
         super().__init__(
             use_preflop_spot_range=use_preflop_spot_range,
+            range_profile=range_profile,
+            range_influence=range_influence,
             use_icm=use_icm,
             icm_strength=icm_strength,
+            tools=tools,
         )
         self.name = "AdaptiveTournamentICMEquityBot"
 
@@ -438,73 +549,93 @@ class AdaptiveTournamentICMEquityBot(TournamentICMEquityBot):
             return None
 
 
-class ButtonStealTournamentICMEquityBot(AdaptiveTournamentICMEquityBot):
+class ConfiguredTournamentEquityBot(TournamentEquityBot):
+    """
+    Tournament equity shell assembled from explicit decision tools.
+
+    This class keeps the base equity, position, sizing, and jam mechanics, but
+    turns tournament pressure and table exploits into a configurable tool stack.
+    """
+
+    DEFAULT_TOOLS = (
+        {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": True},
+        {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
+        {"type": "table_adaptation", "priority": 35, "sample_quality_min": 0.50},
+        {
+            "type": "button_steal",
+            "priority": 40,
+            "sample_quality_min": 0.50,
+            "max_vpip": 0.30,
+            "max_pfr": 0.16,
+            "max_three_bet_rate": 0.08,
+            "base_discount": 0.018,
+            "tightness_multiplier": 0.12,
+            "max_discount": 0.040,
+            "requires_table_sample": True,
+        },
+    )
+
+    def __init__(
+        self,
+        *,
+        use_preflop_spot_range: bool = True,
+        range_profile: str = "legacy",
+        range_influence=1.0,
+        tools=None,
+    ):
+        super().__init__(
+            use_preflop_spot_range=use_preflop_spot_range,
+            range_profile=range_profile,
+            range_influence=range_influence,
+            tools=self.DEFAULT_TOOLS if tools is None else tools,
+        )
+        self.name = "ConfiguredTournamentEquityBot"
+
+    def _payout_pressure(self, game_state):
+        return 0.0
+
+
+class ButtonStealTournamentICMEquityBot(TournamentICMEquityBot):
     """
     ICM tournament bot with one exploit: wider unopened button steals.
 
-    This variant keeps the base ICM discipline everywhere else. It only lowers
-    the preflop raise threshold when the pot is unopened, hero is on the button,
-    the table is tight/passive enough to imply blind overfolding, and the open
-    size risks only a small share of the stack.
+    This variant keeps the base ICM discipline everywhere else. Its default
+    tool stack lowers the preflop raise threshold only when the pot is unopened,
+    hero is on the button, the table is tight/passive enough to imply blind
+    overfolding, and the open size risks only a small share of the stack.
     """
 
-    def __init__(self, *, use_preflop_spot_range: bool = True, use_icm: bool = True, icm_strength: float = 1.0):
+    DEFAULT_TOOLS = (
+        {
+            "type": "button_steal",
+            "priority": 40,
+            "sample_quality_min": 0.50,
+            "max_vpip": 0.30,
+            "max_pfr": 0.16,
+            "max_three_bet_rate": 0.08,
+            "base_discount": 0.018,
+            "tightness_multiplier": 0.12,
+            "max_discount": 0.040,
+            "requires_table_sample": True,
+        },
+    )
+
+    def __init__(
+        self,
+        *,
+        use_preflop_spot_range: bool = True,
+        range_profile: str = "legacy",
+        range_influence=1.0,
+        use_icm: bool = True,
+        icm_strength: float = 1.0,
+        tools=None,
+    ):
         super().__init__(
             use_preflop_spot_range=use_preflop_spot_range,
+            range_profile=range_profile,
+            range_influence=range_influence,
             use_icm=use_icm,
             icm_strength=icm_strength,
+            tools=self.DEFAULT_TOOLS if tools is None else tools,
         )
         self.name = "ButtonStealTournamentICMEquityBot"
-
-    def _raise_threshold(self, *, street, active_players, stack_bb, game_state, spot_type, position):
-        threshold = super()._raise_threshold(
-            street=street,
-            active_players=active_players,
-            stack_bb=stack_bb,
-            game_state=game_state,
-            spot_type=spot_type,
-            position=position,
-        )
-        if not self._is_button_steal_spot(
-            street=street,
-            active_players=active_players,
-            stack_bb=stack_bb,
-            game_state=game_state,
-            spot_type=spot_type,
-            position=position,
-        ):
-            return threshold
-
-        stats = self._table_stats(game_state)
-        quality = stats["sample_quality"] if stats else 0.0
-        tightness = max(0.0, 0.30 - stats["vpip"]) + max(0.0, 0.16 - stats["pfr"]) if stats else 0.0
-        steal_discount = min(0.040, 0.018 + tightness * 0.12) * quality
-        return max(0.36, min(0.90, threshold - steal_discount))
-
-    def _is_button_steal_spot(self, *, street, active_players, stack_bb, game_state, spot_type, position):
-        if street != 0 or position != "BTN":
-            return False
-        if int(game_state.get("call_amount", 0) or 0) != 0:
-            return False
-        if spot_type not in {"unknown", "limped"}:
-            return False
-        if active_players > 4:
-            return False
-        if stack_bb < 16:
-            return False
-        if self._payout_pressure(game_state) > 0.45:
-            return False
-
-        stats = self._table_stats(game_state)
-        if not stats:
-            return False
-        if stats["vpip"] > 0.30 or stats["pfr"] > 0.16 or stats["three_bet_rate"] > 0.08:
-            return False
-
-        stack_size = int(game_state.get("stack_size", 0) or 0)
-        min_raise = int(game_state.get("min_raise", 0) or 0)
-        big_blind = int(game_state.get("blinds", {}).get("big", 1) or 1)
-        if stack_size <= 0 or min_raise <= 0:
-            return False
-        open_size = max(min_raise, int(self._preflop_open_bb(position=position, spot_type=spot_type) * big_blind))
-        return open_size / float(stack_size) <= 0.14

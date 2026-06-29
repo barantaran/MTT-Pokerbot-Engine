@@ -28,6 +28,7 @@ class EVReactionBot(Bot):
                 opponent_range_pct=game_state.get("opponent_range_pct"),
                 preflop_spot_type=game_state.get("preflop_spot_type"),
                 use_preflop_spot_range=self.use_preflop_spot_range,
+                table_stats=game_state.get("table_stats"),
             )
 
         call_ev = equity * (pot_size + call_amount) - call_amount
@@ -80,6 +81,7 @@ class EVInitiativeBot(EVReactionBot):
                 opponent_range_pct=game_state.get("opponent_range_pct"),
                 preflop_spot_type=game_state.get("preflop_spot_type"),
                 use_preflop_spot_range=self.use_preflop_spot_range,
+                table_stats=game_state.get("table_stats"),
             )
 
         call_ev = equity * (pot_size + call_amount) - call_amount
@@ -234,6 +236,7 @@ class EVFormulaBot(EVReactionBot):
                 opponent_range_pct=game_state.get("opponent_range_pct"),
                 preflop_spot_type=game_state.get("preflop_spot_type"),
                 use_preflop_spot_range=self.use_preflop_spot_range,
+                table_stats=game_state.get("table_stats"),
             )
 
         call_ev = self._call_ev(

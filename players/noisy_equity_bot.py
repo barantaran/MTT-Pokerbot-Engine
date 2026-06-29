@@ -37,6 +37,7 @@ class NoisyEquityBot(Bot):
         opponent_range_pct=None,
         preflop_spot_type=None,
         use_preflop_spot_range=False,
+        table_stats=None,
     ):
         real_equity = self.tight_equity(
             hole_cards=hole_cards,
@@ -45,6 +46,7 @@ class NoisyEquityBot(Bot):
             opponent_range_pct=opponent_range_pct,
             preflop_spot_type=preflop_spot_type,
             use_preflop_spot_range=use_preflop_spot_range,
+            table_stats=table_stats,
         )
         random_equity = random.uniform(0.15, 0.85)
         real_weight = min(1.0, max(0.0, self.real_equity_weight))
@@ -59,6 +61,7 @@ class NoisyEquityBot(Bot):
         opponent_range_pct=None,
         preflop_spot_type=None,
         use_preflop_spot_range=False,
+        table_stats=None,
     ):
         from players.tight_equity_bot import estimate_equity
 
@@ -69,6 +72,7 @@ class NoisyEquityBot(Bot):
             opponent_range_pct=opponent_range_pct,
             preflop_spot_type=preflop_spot_type,
             use_preflop_spot_range=use_preflop_spot_range,
+            table_stats=table_stats,
         )
 
     def get_action(self, game_state):

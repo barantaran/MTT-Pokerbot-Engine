@@ -64,10 +64,27 @@ _PREFLOP_SPOT_RANGE_PCT = {
     "3bet": 0.16,
     "four_bet": 0.08,
     "4bet": 0.08,
+    "five_bet_plus": 0.05,
     "five_bet": 0.05,
     "5bet": 0.05,
     "all_in_pressure": 0.05,
     "allin": 0.05,
+}
+
+_ADAPTIVE_PREFLOP_SPOT_RANGE_PCT = {
+    "unknown": 1.00,
+    "limped": 0.70,
+    "srp": 0.50,
+    "single_raised": 0.50,
+    "three_bet": 0.25,
+    "3bet": 0.25,
+    "four_bet": 0.12,
+    "4bet": 0.12,
+    "five_bet_plus": 0.08,
+    "five_bet": 0.08,
+    "5bet": 0.08,
+    "all_in_pressure": 0.10,
+    "allin": 0.10,
 }
 
 
@@ -75,7 +92,23 @@ def _to_card_strings(cards):
     return [Card.int_to_str(card) for card in cards]
 
 
-def normalize_range_pct(opponent_range_pct=None, preflop_spot_type=None, use_preflop_spot_range=False):
+def normalize_range_pct(
+    opponent_range_pct=None,
+    preflop_spot_type=None,
+    use_preflop_spot_range=False,
+    table_stats=None,
+    opponent_stats=None,
+    opponent_position=None,
+    opponent_stack_bb=None,
+    range_profile="legacy",
+    position=None,
+    stack_bb=None,
+    players_left=None,
+    starting_field=None,
+    paid_places=None,
+    itm_distance=None,
+    range_influence=1.0,
+):
     if opponent_range_pct is not None:
         value = float(opponent_range_pct)
         if value > 1.0:
@@ -86,7 +119,317 @@ def normalize_range_pct(opponent_range_pct=None, preflop_spot_type=None, use_pre
         return 1.0
 
     spot_type = str(preflop_spot_type or "unknown").lower()
-    return _PREFLOP_SPOT_RANGE_PCT.get(spot_type, 1.0)
+    profile = str(range_profile or "legacy").lower()
+    adaptive_profile = profile in {"adaptive", "player", "player_adaptive"}
+    range_map = _ADAPTIVE_PREFLOP_SPOT_RANGE_PCT if adaptive_profile else _PREFLOP_SPOT_RANGE_PCT
+    range_pct = range_map.get(spot_type, 1.0)
+    if adaptive_profile:
+        range_pct = _adjust_range_pct_for_mtt_context(
+            range_pct,
+            spot_type,
+            position=position,
+            stack_bb=stack_bb,
+            players_left=players_left,
+            starting_field=starting_field,
+            paid_places=paid_places,
+            itm_distance=itm_distance,
+        )
+    if profile in {"player", "player_adaptive"}:
+        range_pct = _adjust_range_pct_for_player_profile(
+            range_pct,
+            spot_type,
+            opponent_stats,
+            opponent_position=opponent_position,
+        )
+        range_pct = _adjust_range_pct_for_opponent_stack_pressure(
+            range_pct,
+            spot_type,
+            opponent_stack_bb=opponent_stack_bb,
+            hero_stack_bb=stack_bb,
+            players_left=players_left,
+            starting_field=starting_field,
+            paid_places=paid_places,
+            itm_distance=itm_distance,
+        )
+    range_pct = _adjust_range_pct_for_table_stats(range_pct, spot_type, table_stats, profile=profile)
+    influence = _range_influence_for_spot(range_influence, spot_type)
+    if influence >= 0.999:
+        return range_pct
+    return _clamp(1.0 - ((1.0 - range_pct) * influence), 0.01, 1.0)
+
+
+def _range_influence_for_spot(range_influence, spot_type):
+    if isinstance(range_influence, dict):
+        raw_value = range_influence.get(spot_type)
+        if raw_value is None:
+            raw_value = range_influence.get("default", 1.0)
+    else:
+        raw_value = range_influence
+    return _clamp(_safe_float(raw_value, 1.0), 0.0, 1.0)
+
+
+def player_range(vpip, pfr, three_bet, position=None):
+    """
+    Return opponent range percent by preflop context from public action rates.
+
+    Values are fractions of all starting hands. The map describes the opponent's
+    likely range for the action sequence, not a single permanent player type.
+    """
+    vpip = min(0.70, max(0.04, _safe_float(vpip, 0.25)))
+    pfr = min(min(vpip, 0.55), max(0.01, _safe_float(pfr, 0.16)))
+    three_bet = min(0.25, max(0.005, _safe_float(three_bet, 0.08)))
+    passive_gap = max(0.0, vpip - pfr)
+
+    limped = _clamp(vpip + passive_gap * 0.35, 0.10, 0.75)
+    srp = _clamp(pfr * 1.15 + passive_gap * 0.20, 0.06, 0.55)
+    three_bet_range = _clamp(three_bet * 2.2 + pfr * 0.10, 0.025, 0.35)
+    four_bet = _clamp(three_bet * 1.15 + pfr * 0.03, 0.015, 0.18)
+    five_bet_plus = _clamp(three_bet * 0.75, 0.01, 0.12)
+    all_in_pressure = _clamp(three_bet * 0.9 + pfr * 0.05, 0.015, 0.16)
+    open_multiplier = _position_range_multiplier(position, "open")
+    pressure_multiplier = _position_range_multiplier(position, "pressure")
+
+    srp = _clamp(srp * open_multiplier, 0.04, 0.65)
+    three_bet_range = _clamp(three_bet_range * pressure_multiplier, 0.02, 0.42)
+    four_bet = _clamp(four_bet * pressure_multiplier, 0.012, 0.22)
+    five_bet_plus = _clamp(five_bet_plus * pressure_multiplier, 0.008, 0.14)
+    all_in_pressure = _clamp(all_in_pressure * pressure_multiplier, 0.012, 0.20)
+
+    return {
+        "unknown": 1.00,
+        "limped": limped,
+        "srp": srp,
+        "single_raised": srp,
+        "three_bet": three_bet_range,
+        "3bet": three_bet_range,
+        "four_bet": four_bet,
+        "4bet": four_bet,
+        "five_bet_plus": five_bet_plus,
+        "five_bet": five_bet_plus,
+        "5bet": five_bet_plus,
+        "all_in_pressure": all_in_pressure,
+        "allin": all_in_pressure,
+    }
+
+
+def _position_range_multiplier(position, action_class):
+    return 1.0
+
+
+def _adjust_range_pct_for_mtt_context(
+    range_pct,
+    spot_type,
+    *,
+    position=None,
+    stack_bb=None,
+    players_left=None,
+    starting_field=None,
+    paid_places=None,
+    itm_distance=None,
+):
+    multiplier = 1.0
+    position = str(position or "").upper()
+    pressure_spot = spot_type in {
+        "srp",
+        "single_raised",
+        "three_bet",
+        "3bet",
+        "four_bet",
+        "4bet",
+        "five_bet_plus",
+        "five_bet",
+        "5bet",
+        "all_in_pressure",
+        "allin",
+    }
+
+    if position in {"BTN", "CO"} and spot_type in {"unknown", "limped", "srp", "single_raised"}:
+        multiplier *= 1.18
+    elif position in {"UTG", "EP"} and pressure_spot:
+        multiplier *= 0.88
+
+    bb = _optional_float(stack_bb)
+    if bb is not None:
+        if bb <= 8 and spot_type in {"all_in_pressure", "allin", "three_bet", "3bet"}:
+            multiplier *= 1.45
+        elif bb <= 16 and pressure_spot:
+            multiplier *= 1.22
+        elif bb >= 60 and spot_type in {"four_bet", "4bet", "five_bet_plus", "five_bet", "5bet"}:
+            multiplier *= 0.88
+
+    stage = _mtt_stage_pressure(players_left, starting_field, paid_places, itm_distance)
+    if stage >= 0.80 and pressure_spot:
+        multiplier *= 0.82
+    elif stage >= 0.50 and pressure_spot:
+        multiplier *= 0.92
+
+    return min(1.0, max(0.01, range_pct * multiplier))
+
+
+def _adjust_range_pct_for_opponent_stack_pressure(
+    range_pct,
+    spot_type,
+    *,
+    opponent_stack_bb=None,
+    hero_stack_bb=None,
+    players_left=None,
+    starting_field=None,
+    paid_places=None,
+    itm_distance=None,
+):
+    pressure_spot = spot_type in {
+        "srp",
+        "single_raised",
+        "three_bet",
+        "3bet",
+        "four_bet",
+        "4bet",
+        "five_bet_plus",
+        "five_bet",
+        "5bet",
+        "all_in_pressure",
+        "allin",
+    }
+    if not pressure_spot:
+        return range_pct
+
+    villain_bb = _optional_float(opponent_stack_bb)
+    if villain_bb is None or villain_bb <= 0:
+        return range_pct
+
+    hero_bb = _optional_float(hero_stack_bb)
+    multiplier = 1.0
+    if villain_bb <= 8:
+        multiplier *= 1.45
+    elif villain_bb <= 16:
+        multiplier *= 1.25
+    elif villain_bb <= 25:
+        multiplier *= 1.12
+
+    if hero_bb is not None and hero_bb > 0 and villain_bb >= hero_bb * 1.8:
+        multiplier *= 1.12
+
+    stage = _mtt_stage_pressure(players_left, starting_field, paid_places, itm_distance)
+    if stage >= 0.80:
+        multiplier *= 1.16
+    elif stage >= 0.50:
+        multiplier *= 1.08
+
+    return min(1.0, max(0.01, range_pct * multiplier))
+
+
+def _adjust_range_pct_for_player_profile(range_pct, spot_type, table_stats, *, opponent_position=None):
+    if not isinstance(table_stats, dict):
+        return range_pct
+
+    quality = _sample_quality(table_stats)
+    if quality <= 0.0:
+        return range_pct
+
+    ranges = player_range(
+        table_stats.get("vpip", 0.25),
+        table_stats.get("pfr", 0.16),
+        table_stats.get("three_bet_rate", 0.08),
+        position=opponent_position,
+    )
+    player_pct = ranges.get(spot_type, range_pct)
+    return _clamp((range_pct * (1.0 - quality)) + (player_pct * quality), 0.01, 1.0)
+
+
+def _mtt_stage_pressure(players_left, starting_field, paid_places, itm_distance):
+    distance = _optional_float(itm_distance)
+    if distance is not None:
+        if distance <= 0.05:
+            return 1.0
+        if distance <= 0.15:
+            return 0.70
+
+    left = _optional_float(players_left)
+    paid = _optional_float(paid_places)
+    field = _optional_float(starting_field)
+    if left is None or left <= 0:
+        return 0.0
+    if paid is not None and paid > 0:
+        if paid < left <= paid + 2:
+            return 1.0
+        if paid < left <= paid * 1.15:
+            return 0.70
+    if field is not None and field > 0 and left <= min(10.0, field * 0.10):
+        return 0.55
+    return 0.0
+
+
+def _adjust_range_pct_for_table_stats(range_pct, spot_type, table_stats, *, profile="legacy"):
+    if not isinstance(table_stats, dict):
+        return range_pct
+
+    quality = _sample_quality(table_stats)
+    if quality <= 0.0:
+        return range_pct
+
+    if str(profile or "legacy").lower() in {"player", "player_adaptive"}:
+        return range_pct
+
+    vpip = _clamped_rate(table_stats, "vpip", 0.25)
+    pfr = _clamped_rate(table_stats, "pfr", 0.16)
+    three_bet = _clamped_rate(table_stats, "three_bet_rate", 0.08)
+
+    if str(profile or "legacy").lower() == "adaptive":
+        if spot_type in {"three_bet", "3bet", "four_bet", "4bet", "five_bet_plus", "five_bet", "5bet", "all_in_pressure", "allin"}:
+            tendency = ((three_bet - 0.08) * 3.0) + ((pfr - 0.16) * 1.0)
+        elif spot_type in {"srp", "single_raised"}:
+            tendency = ((pfr - 0.16) * 1.7) + ((vpip - 0.25) * 0.7)
+        elif spot_type == "limped":
+            tendency = (vpip - 0.25) * 1.2
+        else:
+            tendency = ((vpip - 0.25) * 0.7) + ((pfr - 0.16) * 0.5)
+        multiplier = 1.0 + max(-0.55, min(1.10, tendency)) * quality
+        return min(1.0, max(0.01, range_pct * multiplier))
+
+    if spot_type in {"three_bet", "3bet", "four_bet", "4bet", "five_bet_plus", "five_bet", "5bet", "all_in_pressure", "allin"}:
+        tendency = ((three_bet - 0.08) * 2.2) + ((pfr - 0.16) * 0.8)
+    elif spot_type in {"srp", "single_raised"}:
+        tendency = ((pfr - 0.16) * 1.2) + ((vpip - 0.25) * 0.5)
+    elif spot_type == "limped":
+        tendency = (vpip - 0.25) * 1.0
+    else:
+        tendency = ((vpip - 0.25) * 0.6) + ((pfr - 0.16) * 0.4)
+
+    multiplier = 1.0 + max(-0.45, min(0.85, tendency)) * quality
+    return min(1.0, max(0.01, range_pct * multiplier))
+
+
+def _optional_float(value):
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_float(value, default):
+    try:
+        if value is None:
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _clamp(value, lower, upper):
+    return min(upper, max(lower, float(value)))
+
+
+def _sample_quality(stats):
+    return _clamp(stats.get("sample_quality", 0.0) or 0.0, 0.0, 1.0)
+
+
+def _clamped_rate(stats, key, default):
+    value = stats.get(key, default)
+    if value is None:
+        value = default
+    return min(1.0, max(0.0, float(value)))
 
 
 def _starting_hand_score(first, second):
@@ -219,6 +562,18 @@ def estimate_equity(
     opponent_range_pct=None,
     preflop_spot_type=None,
     use_preflop_spot_range=False,
+    table_stats=None,
+    opponent_stats=None,
+    opponent_position=None,
+    opponent_stack_bb=None,
+    range_profile="legacy",
+    position=None,
+    stack_bb=None,
+    players_left=None,
+    starting_field=None,
+    paid_places=None,
+    itm_distance=None,
+    range_influence=1.0,
 ):
     """
     Estimate hero equity against opponent ranges in Texas Hold'em.
@@ -229,7 +584,23 @@ def estimate_equity(
 
     hero_cards = tuple(_to_card_strings(hole_cards))
     board = tuple(_to_card_strings(board_cards))
-    range_pct = normalize_range_pct(opponent_range_pct, preflop_spot_type, use_preflop_spot_range)
+    range_pct = normalize_range_pct(
+        opponent_range_pct,
+        preflop_spot_type,
+        use_preflop_spot_range,
+        table_stats,
+        opponent_stats=opponent_stats,
+        opponent_position=opponent_position,
+        opponent_stack_bb=opponent_stack_bb,
+        range_profile=range_profile,
+        position=position,
+        stack_bb=stack_bb,
+        players_left=players_left,
+        starting_field=starting_field,
+        paid_places=paid_places,
+        itm_distance=itm_distance,
+        range_influence=range_influence,
+    )
     return _estimate_equity_cached(hero_cards, board, int(active_players), iterations, range_pct)
 
 

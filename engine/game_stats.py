@@ -78,6 +78,29 @@ class TableStatsTracker:
             "sample_quality": min(1.0, player_hands / 45.0),
         }
 
+    def player_snapshot(self, player: str) -> Dict[str, float]:
+        """Return public behavior rates for one observed player."""
+        player = str(player or "")
+        player_hands = {key for key in self._player_hands if key[3] == player}
+        three_bet_opportunities = {key for key in self._three_bet_opportunity_hands if key[3] == player}
+
+        return {
+            "hands_observed": len(player_hands),
+            "player_hands_observed": len(player_hands),
+            "action_total": self._action_total,
+            "vpip": self._rate(len({key for key in self._vpip_hands if key[3] == player}), len(player_hands)),
+            "pfr": self._rate(len({key for key in self._pfr_hands if key[3] == player}), len(player_hands)),
+            "preflop_call_rate": self._rate(
+                len({key for key in self._preflop_call_hands if key[3] == player}),
+                len(player_hands),
+            ),
+            "three_bet_rate": self._rate(
+                len({key for key in self._three_bet_hands if key[3] == player}),
+                len(three_bet_opportunities),
+            ),
+            "sample_quality": min(1.0, len(player_hands) / 15.0),
+        }
+
     def _observe_preflop_action(
         self,
         event: Dict[str, Any],

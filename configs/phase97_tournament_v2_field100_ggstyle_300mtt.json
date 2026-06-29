@@ -1,0 +1,40 @@
+{
+  "run_id": "phase97_tournament_v2_field100_ggstyle_300mtt",
+  "mtt_count": 300,
+  "workers": 8,
+  "random_seed": 97001,
+  "lineup": {
+    "tournament_equity_v2": 25,
+    "tournament_equity": 25,
+    "tight_equity": 1,
+    "noisy_equity": 24,
+    "aggressive_equity": 25
+  },
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "fixed_bots_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": 5000,
+    "payouts": {
+      "1": 0.2524698133918771,
+      "2": 0.1734357848518112,
+      "3": 0.12294182217343579,
+      "4": 0.09220636663007684,
+      "5": 0.07025246981339188,
+      "6": 0.054884742041712405,
+      "7": 0.043907793633369926,
+      "8": 0.036223929747530186,
+      "9": 0.030735455543358946,
+      "10": 0.026344676180021953,
+      "11": 0.02305159165751921,
+      "12": 0.020856201975850714,
+      "13": 0.018660812294182216,
+      "14": 0.01756311745334797,
+      "15": 0.01646542261251372
+    }
+  }
+}

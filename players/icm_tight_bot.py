@@ -68,6 +68,7 @@ class ICMTightBot(Bot):
                 opponent_range_pct=game_state.get("opponent_range_pct"),
                 preflop_spot_type=spot_type,
                 use_preflop_spot_range=self.use_preflop_spot_range,
+                table_stats=game_state.get("table_stats"),
             )
 
         icm_pressure = self._icm_pressure(game_state, stack_size=stack_size)

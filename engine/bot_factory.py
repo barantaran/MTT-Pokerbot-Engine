@@ -4,6 +4,7 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping
 
+from engine.bot_tools import available_decision_tools
 from players.aggressive_bot import AggressiveBot
 from players.aggressive_no_equity_bot import AggressiveNoEquityBot
 from players.call_bot import CallBot
@@ -16,6 +17,7 @@ from players.tight_equity_bot import TightEquityBot
 from players.tournament_equity_bot import (
     AdaptiveTournamentICMEquityBot,
     ButtonStealTournamentICMEquityBot,
+    ConfiguredTournamentEquityBot,
     TournamentEquityBot,
     TournamentEquityBotV2,
     TournamentICMEquityBot,
@@ -45,6 +47,11 @@ BOT_DEFINITIONS: tuple[BotDefinition, ...] = (
     BotDefinition(TournamentEquityBot, "tournament_equity", ("tournament_equity", "mtt_equity", "TournamentEquityBot")),
     BotDefinition(TournamentEquityBotV2, "tournament_equity_v2", ("tournament_equity_v2", "TournamentEquityBotV2")),
     BotDefinition(TournamentICMEquityBot, "tournament_icm_equity", ("tournament_icm_equity", "TournamentICMEquityBot")),
+    BotDefinition(
+        ConfiguredTournamentEquityBot,
+        "configured_tournament_equity",
+        ("configured_tournament_equity", "configured_mtt_equity", "ConfiguredTournamentEquityBot"),
+    ),
     BotDefinition(
         AdaptiveTournamentICMEquityBot,
         "adaptive_tournament_icm_equity",
@@ -87,6 +94,8 @@ def available_bot_tools() -> Dict[str, Dict[str, Any]]:
             "aliases": list(definition.aliases),
             "params": _constructor_params(definition.bot_class),
         }
+    for name, tool in available_decision_tools().items():
+        tools[f"tool:{name}"] = tool
     return tools
 
 

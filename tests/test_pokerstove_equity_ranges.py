@@ -4,7 +4,14 @@ import unittest
 
 from treys import Card
 
-from engine.pokerstove_equity import _range_filtered_hands, clear_equity_cache, equity_cache_info, estimate_equity, normalize_range_pct
+from engine.pokerstove_equity import (
+    _range_filtered_hands,
+    clear_equity_cache,
+    equity_cache_info,
+    estimate_equity,
+    normalize_range_pct,
+    player_range,
+)
 
 
 class PokerstoveEquityRangeTests(unittest.TestCase):
@@ -19,8 +26,299 @@ class PokerstoveEquityRangeTests(unittest.TestCase):
             normalize_range_pct(preflop_spot_type="three_bet", use_preflop_spot_range=True),
         )
 
+    def test_five_bet_plus_uses_tight_range(self):
+        self.assertEqual(
+            normalize_range_pct(preflop_spot_type="five_bet_plus", use_preflop_spot_range=True),
+            0.05,
+        )
+
+    def test_adaptive_profile_uses_softer_default_ranges(self):
+        self.assertGreater(
+            normalize_range_pct(
+                preflop_spot_type="three_bet",
+                use_preflop_spot_range=True,
+                range_profile="adaptive",
+            ),
+            normalize_range_pct(preflop_spot_type="three_bet", use_preflop_spot_range=True),
+        )
+        self.assertGreater(
+            normalize_range_pct(
+                preflop_spot_type="all_in_pressure",
+                use_preflop_spot_range=True,
+                range_profile="adaptive",
+            ),
+            normalize_range_pct(preflop_spot_type="all_in_pressure", use_preflop_spot_range=True),
+        )
+
+    def test_adaptive_profile_widens_short_stack_pressure_ranges(self):
+        base = normalize_range_pct(
+            preflop_spot_type="all_in_pressure",
+            use_preflop_spot_range=True,
+            range_profile="adaptive",
+            stack_bb=30,
+        )
+        short = normalize_range_pct(
+            preflop_spot_type="all_in_pressure",
+            use_preflop_spot_range=True,
+            range_profile="adaptive",
+            stack_bb=7,
+        )
+
+        self.assertGreater(short, base)
+
+    def test_adaptive_profile_tightens_bubble_pressure_ranges(self):
+        base = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="adaptive",
+            players_left=80,
+            starting_field=200,
+            paid_places=30,
+            itm_distance=0.50,
+        )
+        bubble = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="adaptive",
+            players_left=31,
+            starting_field=200,
+            paid_places=30,
+            itm_distance=0.01,
+        )
+
+        self.assertLess(bubble, base)
+
+    def test_player_range_maps_public_rates_to_spot_ranges(self):
+        nit = player_range(vpip=0.12, pfr=0.07, three_bet=0.02)
+        lag = player_range(vpip=0.42, pfr=0.28, three_bet=0.13)
+
+        self.assertLess(nit["srp"], lag["srp"])
+        self.assertLess(nit["three_bet"], lag["three_bet"])
+        self.assertLess(nit["all_in_pressure"], lag["all_in_pressure"])
+
+    def test_player_range_keeps_position_neutral(self):
+        same_stats = {"vpip": 0.28, "pfr": 0.18, "three_bet": 0.08}
+
+        utg = player_range(position="UTG", **same_stats)
+        button = player_range(position="BTN", **same_stats)
+
+        self.assertEqual(utg["srp"], button["srp"])
+        self.assertEqual(utg["three_bet"], button["three_bet"])
+
+    def test_player_profile_keeps_aggressor_position_neutral(self):
+        opponent = {"vpip": 0.28, "pfr": 0.18, "three_bet_rate": 0.08, "sample_quality": 1.0}
+
+        utg = normalize_range_pct(
+            preflop_spot_type="srp",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=opponent,
+            opponent_position="UTG",
+        )
+        button = normalize_range_pct(
+            preflop_spot_type="srp",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=opponent,
+            opponent_position="BTN",
+        )
+
+        self.assertEqual(utg, button)
+
+    def test_player_profile_blends_public_rates_by_sample_quality(self):
+        tight_opponent = {"vpip": 0.12, "pfr": 0.06, "three_bet_rate": 0.02, "sample_quality": 1.0}
+        loose_opponent = {"vpip": 0.55, "pfr": 0.36, "three_bet_rate": 0.18, "sample_quality": 1.0}
+
+        base = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats={"sample_quality": 0.0},
+        )
+        tight = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=tight_opponent,
+        )
+        loose = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=loose_opponent,
+        )
+
+        self.assertLess(tight, base)
+        self.assertGreater(loose, base)
+
+    def test_player_profile_widens_pressure_range_against_short_stack_aggressor(self):
+        opponent = {"vpip": 0.22, "pfr": 0.14, "three_bet_rate": 0.06, "sample_quality": 1.0}
+
+        normal_stack = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=opponent,
+            opponent_stack_bb=35,
+            stack_bb=35,
+        )
+        short_stack = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=opponent,
+            opponent_stack_bb=8,
+            stack_bb=35,
+        )
+
+        self.assertGreater(short_stack, normal_stack)
+
+    def test_player_profile_widens_pressure_range_against_covering_late_aggressor(self):
+        opponent = {"vpip": 0.22, "pfr": 0.14, "three_bet_rate": 0.06, "sample_quality": 1.0}
+
+        normal_stack = normalize_range_pct(
+            preflop_spot_type="srp",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=opponent,
+            opponent_stack_bb=35,
+            stack_bb=35,
+            players_left=80,
+            starting_field=100,
+            paid_places=26,
+            itm_distance=0.7,
+        )
+        covering_bubble_stack = normalize_range_pct(
+            preflop_spot_type="srp",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=opponent,
+            opponent_stack_bb=70,
+            stack_bb=35,
+            players_left=27,
+            starting_field=100,
+            paid_places=26,
+            itm_distance=0.01,
+        )
+
+        self.assertGreater(covering_bubble_stack, normal_stack)
+
+    def test_player_profile_uses_population_range_without_sample(self):
+        self.assertEqual(
+            normalize_range_pct(
+                preflop_spot_type="srp",
+                use_preflop_spot_range=True,
+                range_profile="player",
+                opponent_stats={"vpip": 0.55, "pfr": 0.36, "three_bet_rate": 0.18, "sample_quality": 0.0},
+            ),
+            normalize_range_pct(
+                preflop_spot_type="srp",
+                use_preflop_spot_range=True,
+                range_profile="adaptive",
+            ),
+        )
+
+    def test_player_profile_ignores_table_rates_for_personal_range(self):
+        loose_table = {"vpip": 0.55, "pfr": 0.36, "three_bet_rate": 0.18, "sample_quality": 1.0}
+
+        self.assertEqual(
+            normalize_range_pct(
+                preflop_spot_type="three_bet",
+                use_preflop_spot_range=True,
+                range_profile="player",
+                table_stats=loose_table,
+                opponent_stats={"sample_quality": 0.0},
+            ),
+            normalize_range_pct(
+                preflop_spot_type="three_bet",
+                use_preflop_spot_range=True,
+                range_profile="adaptive",
+            ),
+        )
+
+    def test_range_influence_can_soften_selected_pressure_spots(self):
+        full = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats={"vpip": 0.12, "pfr": 0.06, "three_bet_rate": 0.02, "sample_quality": 1.0},
+            range_influence={"default": 1.0, "three_bet": 1.0},
+        )
+        softened = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats={"vpip": 0.12, "pfr": 0.06, "three_bet_rate": 0.02, "sample_quality": 1.0},
+            range_influence={"default": 1.0, "three_bet": 0.25},
+        )
+        unopened = normalize_range_pct(
+            preflop_spot_type="unknown",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            range_influence={"default": 1.0, "three_bet": 0.25},
+        )
+
+        self.assertGreater(softened, full)
+        self.assertLess(softened, 1.0)
+        self.assertEqual(unopened, 1.0)
+
+    def test_zero_range_influence_matches_no_range_for_derived_ranges(self):
+        self.assertEqual(
+            normalize_range_pct(
+                preflop_spot_type="all_in_pressure",
+                use_preflop_spot_range=True,
+                range_profile="player",
+                opponent_stats={"vpip": 0.12, "pfr": 0.06, "three_bet_rate": 0.02, "sample_quality": 1.0},
+                range_influence=0.0,
+            ),
+            1.0,
+        )
+
     def test_preflop_spot_range_is_opt_in(self):
-        self.assertEqual(normalize_range_pct(preflop_spot_type="three_bet"), 1.0)
+        loose_stats = {"vpip": 0.55, "pfr": 0.36, "three_bet_rate": 0.18, "sample_quality": 1.0}
+        self.assertEqual(normalize_range_pct(preflop_spot_type="three_bet", table_stats=loose_stats), 1.0)
+
+    def test_table_stats_adjust_range_when_enabled(self):
+        tight_stats = {"vpip": 0.12, "pfr": 0.06, "three_bet_rate": 0.02, "sample_quality": 1.0}
+        loose_stats = {"vpip": 0.55, "pfr": 0.36, "three_bet_rate": 0.18, "sample_quality": 1.0}
+
+        base = normalize_range_pct(preflop_spot_type="three_bet", use_preflop_spot_range=True)
+        tight = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            table_stats=tight_stats,
+        )
+        loose = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            table_stats=loose_stats,
+        )
+
+        self.assertLess(tight, base)
+        self.assertGreater(loose, base)
+
+    def test_low_sample_table_stats_do_not_adjust_range(self):
+        loose_stats = {"vpip": 0.55, "pfr": 0.36, "three_bet_rate": 0.18, "sample_quality": 0.0}
+
+        self.assertEqual(
+            normalize_range_pct(
+                preflop_spot_type="three_bet",
+                use_preflop_spot_range=True,
+                table_stats=loose_stats,
+            ),
+            normalize_range_pct(preflop_spot_type="three_bet", use_preflop_spot_range=True),
+        )
+
+    def test_missing_table_stat_rates_are_neutral(self):
+        self.assertEqual(
+            normalize_range_pct(
+                preflop_spot_type="three_bet",
+                use_preflop_spot_range=True,
+                table_stats={"sample_quality": 1.0},
+            ),
+            normalize_range_pct(preflop_spot_type="three_bet", use_preflop_spot_range=True),
+        )
+
 
     def test_explicit_range_percent_accepts_percent_or_fraction(self):
         self.assertEqual(normalize_range_pct(opponent_range_pct=25), 0.25)

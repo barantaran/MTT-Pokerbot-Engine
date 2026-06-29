@@ -25,13 +25,15 @@ def state(**overrides):
 class RangePolicyBotTests(unittest.TestCase):
     def test_uses_range_aware_equity_by_default(self):
         bot = RangePolicyBot(variant="test")
+        table_stats = {"sample_quality": 1.0, "vpip": 0.40, "pfr": 0.24, "three_bet_rate": 0.10}
 
         with patch("players.range_policy_bot.estimate_equity", return_value=0.40) as equity:
-            action = bot.get_action(state(call_amount=40))
+            action = bot.get_action(state(call_amount=40, table_stats=table_stats))
 
         self.assertEqual(action, ("call", 0))
         self.assertTrue(equity.call_args.kwargs["use_preflop_spot_range"])
         self.assertEqual(equity.call_args.kwargs["preflop_spot_type"], "srp")
+        self.assertEqual(equity.call_args.kwargs["table_stats"], table_stats)
 
     def test_uses_provided_hero_equity_without_recomputing(self):
         bot = RangePolicyBot(raise_threshold=0.60)

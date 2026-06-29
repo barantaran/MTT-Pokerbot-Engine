@@ -1,0 +1,23 @@
+{
+  "run_id": "phase95_tournament_v2_mixed_field_1000mtt_50entries",
+  "mtt_count": 1000,
+  "workers": 8,
+  "random_seed": 95001,
+  "lineup": {
+    "tournament_equity_v2": 10,
+    "tournament_equity": 10,
+    "tight_equity": 10,
+    "noisy_equity": 10,
+    "aggressive_equity": 10
+  },
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "fixed_bots_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": 5000
+  }
+}

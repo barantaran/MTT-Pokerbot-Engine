@@ -28,6 +28,19 @@ class _RecordingBot:
         return ("fold", 0)
 
 
+class _ScriptedBot:
+    def __init__(self, name, actions):
+        self.name = name
+        self.actions = list(actions)
+        self.states = []
+
+    def get_action(self, game_state):
+        self.states.append(dict(game_state))
+        if self.actions:
+            return self.actions.pop(0)
+        return ("fold", 0)
+
+
 class TablePreflopSpotTypeTests(unittest.TestCase):
     def _table(self):
         table = Table(table_id=1)
@@ -105,6 +118,31 @@ class TablePreflopSpotTypeTests(unittest.TestCase):
         self.assertEqual(first_state["table_stats"]["player_hands_observed"], 3)
         self.assertEqual(first_state["table_stats"]["action_total"], 0)
         self.assertGreater(later_state["table_stats"]["action_total"], 0)
+
+    def test_state_includes_current_preflop_aggressor_public_stats(self):
+        table = Table(table_id=1)
+        bots = [
+            _ScriptedBot("HJ", [("fold", 0)]),
+            _ScriptedBot("SB", [("fold", 0)]),
+            _ScriptedBot("BB", [("fold", 0)]),
+            _ScriptedBot("BTN", [("fold", 0)]),
+            _ScriptedBot("UTG", [("raise", 40)]),
+        ]
+        for bot in bots:
+            player = PlayerState(bot, 1000)
+            player.is_active = True
+            table.add_player(player)
+
+        _active_players, _events = table.play_hand({"small": 10, "big": 20})
+
+        hj_state = bots[0].states[0]
+        self.assertEqual(hj_state["opponent_id"], "UTG")
+        self.assertEqual(hj_state["opponent_position"], "UTG")
+        self.assertEqual(hj_state["opponent_stack_size"], 940)
+        self.assertEqual(hj_state["opponent_stack_bb"], 47.0)
+        self.assertEqual(hj_state["opponent_stats"]["hands_observed"], 1)
+        self.assertEqual(hj_state["opponent_stats"]["vpip"], 1.0)
+        self.assertEqual(hj_state["opponent_stats"]["pfr"], 1.0)
 
     def test_separates_unknown_from_limped(self):
         table = self._table()

@@ -247,6 +247,9 @@ class Table:
         min_raise = blinds['big']
         preflop_raise_count = 0
         preflop_limp_count = 0
+        current_preflop_aggressor_name = ""
+        current_preflop_aggressor_position = ""
+        current_preflop_aggressor_stack = 0
         idx = start_idx
         num_players = len(self.players)
         
@@ -292,6 +295,19 @@ class Table:
                         "position": self._position_label(idx, num_players),
                         "preflop_spot_type": preflop_spot_type,
                         "table_stats": self.stats_tracker.snapshot(),
+                        "opponent_id": current_preflop_aggressor_name if call_amount > 0 else "",
+                        "opponent_position": current_preflop_aggressor_position if call_amount > 0 else "",
+                        "opponent_stack_size": current_preflop_aggressor_stack if call_amount > 0 else 0,
+                        "opponent_stack_bb": (
+                            current_preflop_aggressor_stack / float(blinds["big"])
+                            if call_amount > 0 and blinds["big"] > 0
+                            else 0.0
+                        ),
+                        "opponent_stats": (
+                            self.stats_tracker.player_snapshot(current_preflop_aggressor_name)
+                            if call_amount > 0 and current_preflop_aggressor_name
+                            else None
+                        ),
                     }
                     
                     try:
@@ -367,6 +383,9 @@ class Table:
                             current_highest_bet = player.current_bet
                             if not board:
                                 preflop_raise_count += 1
+                                current_preflop_aggressor_name = player.name
+                                current_preflop_aggressor_position = action_position
+                                current_preflop_aggressor_stack = player.stack
                                 self.current_preflop_spot_type = (
                                     PREFLOP_SPOT_ALL_IN_PRESSURE
                                     if player.is_all_in

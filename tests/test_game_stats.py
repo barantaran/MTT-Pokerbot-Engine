@@ -53,6 +53,19 @@ def test_table_stats_counts_public_preflop_rates_once_per_player_hand():
     assert stats["pfr"] == 1 / 3
     assert stats["preflop_call_rate"] == 1 / 3
 
+    opener_stats = tracker.player_snapshot("opener")
+    caller_stats = tracker.player_snapshot("caller")
+    folder_stats = tracker.player_snapshot("folder")
+
+    assert opener_stats["hands_observed"] == 1
+    assert opener_stats["vpip"] == 1.0
+    assert opener_stats["pfr"] == 1.0
+    assert caller_stats["vpip"] == 1.0
+    assert caller_stats["pfr"] == 0.0
+    assert caller_stats["preflop_call_rate"] == 1.0
+    assert folder_stats["vpip"] == 0.0
+    assert folder_stats["pfr"] == 0.0
+
 
 def test_table_stats_counts_three_bet_and_postflop_aggression():
     tracker = TableStatsTracker()
@@ -120,6 +133,10 @@ def test_table_stats_counts_three_bet_and_postflop_aggression():
     })
 
     stats = tracker.snapshot()
+    opener_stats = tracker.player_snapshot("opener")
+    threebettor_stats = tracker.player_snapshot("threebettor")
 
     assert stats["three_bet_rate"] == 1.0
     assert stats["postflop_aggression_factor"] == 1.0
+    assert opener_stats["three_bet_rate"] == 0.0
+    assert threebettor_stats["three_bet_rate"] == 1.0

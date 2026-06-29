@@ -6,6 +6,7 @@ from unittest.mock import patch
 from players.tournament_equity_bot import (
     AdaptiveTournamentICMEquityBot,
     ButtonStealTournamentICMEquityBot,
+    ConfiguredTournamentEquityBot,
     TournamentEquityBot,
     TournamentEquityBotV2,
     TournamentICMEquityBot,
@@ -43,6 +44,40 @@ class TournamentEquityBotTests(unittest.TestCase):
         self.assertEqual(action, ("call", 0))
         self.assertTrue(equity.call_args.kwargs["use_preflop_spot_range"])
         self.assertEqual(equity.call_args.kwargs["preflop_spot_type"], "three_bet")
+        self.assertEqual(equity.call_args.kwargs["range_profile"], "legacy")
+
+    def test_configured_range_profile_is_passed_to_equity_estimator(self):
+        bot = TournamentEquityBot(range_profile="adaptive")
+
+        with patch("players.tournament_equity_bot.estimate_equity", return_value=0.50) as equity:
+            bot.get_action(
+                state(
+                    call_amount=40,
+                    preflop_spot_type="three_bet",
+                    position="BB",
+                    opponent_position="BTN",
+                    opponent_stack_bb=12,
+                    players_left=31,
+                    paid_places=30,
+                    itm_distance=0.01,
+                )
+            )
+
+        self.assertEqual(equity.call_args.kwargs["range_profile"], "adaptive")
+        self.assertEqual(equity.call_args.kwargs["position"], "BB")
+        self.assertEqual(equity.call_args.kwargs["opponent_position"], "BTN")
+        self.assertEqual(equity.call_args.kwargs["opponent_stack_bb"], 12)
+        self.assertEqual(equity.call_args.kwargs["players_left"], 31)
+
+    def test_configured_range_influence_is_passed_to_equity_estimator(self):
+        range_influence = {"default": 1.0, "three_bet": 0.30, "all_in_pressure": 0.40}
+        bot = ConfiguredTournamentEquityBot(range_profile="player", range_influence=range_influence)
+
+        with patch("players.tournament_equity_bot.estimate_equity", return_value=0.50) as equity:
+            bot.get_action(state(call_amount=40, preflop_spot_type="three_bet"))
+
+        self.assertEqual(equity.call_args.kwargs["range_profile"], "player")
+        self.assertEqual(equity.call_args.kwargs["range_influence"], range_influence)
 
     def test_folds_bad_priced_call(self):
         bot = TournamentEquityBot()
@@ -351,8 +386,134 @@ class TournamentEquityBotTests(unittest.TestCase):
 
         self.assertEqual(action, ("call", 0))
 
+    def test_configured_bot_applies_icm_as_tool(self):
+        bot = ConfiguredTournamentEquityBot()
+
+        action = bot.get_action(
+            state(
+                pot_size=100,
+                call_amount=50,
+                hero_equity=0.39,
+                players_left=31,
+                paid_places=30,
+                itm_distance=0.01,
+                next_prize_gain_pct=0.02,
+            )
+        )
+
+        self.assertEqual(action, ("fold", 0))
+
+    def test_configured_bot_applies_table_adaptation_as_tool(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "table_adaptation"}])
+
+        action = bot.get_action(state(
+            hero_equity=0.535,
+            position="HJ",
+            call_amount=0,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.58,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("raise", 46))
+
+    def test_configured_bot_can_disable_default_tools(self):
+        bot = ConfiguredTournamentEquityBot(tools=[])
+
+        action = bot.get_action(state(
+            hero_equity=0.47,
+            position="BTN",
+            call_amount=0,
+            active_players=3,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_endgame_conversion_tool_raises_final_table_big_stack(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "endgame_conversion"}])
+
+        action = bot.get_action(state(
+            hero_equity=0.525,
+            players_left=9,
+            paid_places=26,
+            stack_size=2400,
+            table_stacks=[2400, 1800, 1600, 1400, 1200, 1000, 900, 800, 700],
+            hero_table_index=0,
+        ))
+
+        self.assertEqual(action, ("raise", 46))
+
+    def test_endgame_conversion_tool_preserves_bubble_discipline(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "endgame_conversion"}])
+
+        action = bot.get_action(state(
+            hero_equity=0.525,
+            players_left=9,
+            paid_places=8,
+            stack_size=2400,
+            table_stacks=[2400, 1800, 1600, 1400, 1200, 1000, 900, 800, 700],
+            hero_table_index=0,
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_endgame_conversion_tool_requires_playable_stack(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "endgame_conversion"}])
+
+        action = bot.get_action(state(
+            hero_equity=0.525,
+            players_left=9,
+            paid_places=26,
+            stack_size=300,
+            table_stacks=[300, 280, 260, 240, 220, 200, 180, 160, 140],
+            hero_table_index=0,
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
     def test_button_steal_icm_widens_unopened_button_on_tight_table(self):
         bot = ButtonStealTournamentICMEquityBot(use_icm=False)
+
+        action = bot.get_action(state(
+            hero_equity=0.47,
+            position="BTN",
+            call_amount=0,
+            active_players=3,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("raise", 44))
+
+    def test_configured_tool_widens_unopened_button_on_tight_table(self):
+        bot = TournamentICMEquityBot(
+            use_icm=False,
+            tools=[
+                {
+                    "type": "button_steal",
+                    "sample_quality_min": 0.50,
+                    "max_vpip": 0.30,
+                    "max_pfr": 0.16,
+                    "max_three_bet_rate": 0.08,
+                    "base_discount": 0.018,
+                    "tightness_multiplier": 0.12,
+                    "max_discount": 0.040,
+                }
+            ],
+        )
 
         action = bot.get_action(state(
             hero_equity=0.47,

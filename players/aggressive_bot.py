@@ -36,6 +36,7 @@ class AggressiveBot(Bot):
                 opponent_range_pct=game_state.get("opponent_range_pct"),
                 preflop_spot_type=game_state.get("preflop_spot_type"),
                 use_preflop_spot_range=self.use_preflop_spot_range,
+                table_stats=game_state.get("table_stats"),
             )
         required_equity = pot_odds(call_amount, pot_size)
 
