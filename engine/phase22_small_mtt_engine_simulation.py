@@ -265,6 +265,7 @@ def temporary_engine_config(overrides: Dict[str, Any]):
 
 def _engine_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
     payouts_raw = dict(config.get("payouts", {"1": 1.0}))
+    max_hands = config.get("max_hands_per_tournament", 250)
     return {
         "bot_decision_timeout_ms": int(config.get("bot_decision_timeout_ms", 500)),
         "starting_stack": int(config.get("starting_stack", 1500)),
@@ -272,7 +273,7 @@ def _engine_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
         "hands_per_level": int(config.get("hands_per_level", 20)),
         "blinds_schedule": list(config.get("blinds_schedule", [{"small": 10, "big": 20}])),
         "payouts": {int(key): float(value) for key, value in payouts_raw.items()},
-        "max_hands_per_tournament": int(config.get("max_hands_per_tournament", 250)),
+        "max_hands_per_tournament": None if max_hands is None else int(max_hands),
     }
 
 

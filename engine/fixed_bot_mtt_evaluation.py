@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+from engine.bot_factory import BOT_REGISTRY, build_configurable_bots
 from engine.evolutionary_reduced_mtt import (
     _engine_overrides,
     _seed_everything,
@@ -22,41 +23,14 @@ from engine.evolutionary_reduced_mtt import (
     utc_stamp,
 )
 from engine.tournament import Tournament
-from players.aggressive_bot import AggressiveBot
-from players.ev_reaction_bot import EVInitiativeBot, EVReactionBot
-from players.noisy_equity_bot import NoisyEquityBot
-from players.tight_equity_bot import TightEquityBot
-from players.tournament_equity_bot import TournamentEquityBot, TournamentEquityBotV2
 
 
-def _build_bots(lineup: Dict[str, int], engine_config: Dict[str, Any]) -> tuple[List[Any], Dict[str, str]]:
-    bots: List[Any] = []
-    name_to_population: Dict[str, str] = {}
-
-    def add(population: str, bot: Any) -> None:
-        index = int(lineup_seen.get(population, 0)) + 1
-        lineup_seen[population] = index
-        bot.name = f"{population}_{index:03d}"
-        bots.append(bot)
-        name_to_population[bot.name] = population
-
-    lineup_seen: Dict[str, int] = {}
-    use_ranges = bool(engine_config.get("fixed_bots_use_preflop_spot_range", False))
-    for _ in range(int(lineup.get("ev_initiative", 0) or 0)):
-        add("ev_initiative", EVInitiativeBot(use_preflop_spot_range=use_ranges))
-    for _ in range(int(lineup.get("ev_reaction", 0) or 0)):
-        add("ev_reaction", EVReactionBot(use_preflop_spot_range=use_ranges))
-    for _ in range(int(lineup.get("tournament_equity", 0) or 0)):
-        add("tournament_equity", TournamentEquityBot(use_preflop_spot_range=use_ranges))
-    for _ in range(int(lineup.get("tournament_equity_v2", 0) or 0)):
-        add("tournament_equity_v2", TournamentEquityBotV2(use_preflop_spot_range=use_ranges))
-    for _ in range(int(lineup.get("tight_equity", 0) or 0)):
-        add("tight_equity", TightEquityBot(use_preflop_spot_range=use_ranges))
-    for _ in range(int(lineup.get("noisy_equity", 0) or 0)):
-        add("noisy_equity", NoisyEquityBot(use_preflop_spot_range=use_ranges))
-    for _ in range(int(lineup.get("aggressive_equity", 0) or 0)):
-        add("aggressive_equity", AggressiveBot(use_preflop_spot_range=use_ranges))
-    return bots, name_to_population
+def _build_bots(
+    lineup: Dict[str, int],
+    engine_config: Dict[str, Any],
+    bot_specs: List[Dict[str, Any]] | None = None,
+) -> tuple[List[Any], Dict[str, str]]:
+    return build_configurable_bots(lineup, engine_config, extra_specs=bot_specs)
 
 
 def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -65,7 +39,11 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         _seed_everything(int(payload["seed"]))
         with temporary_engine_config(_engine_overrides(engine_config)):
-            bots, name_to_population = _build_bots(dict(payload["lineup"]), engine_config)
+            bots, name_to_population = _build_bots(
+                dict(payload["lineup"]),
+                engine_config,
+                list(payload.get("lineup_variants", [])),
+            )
             random.shuffle(bots)
             tournament = Tournament(bots, tournament_id=tournament_id)
             results, events = tournament.play()
@@ -101,6 +79,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     workers = max(1, min(int(config.get("workers", 8)), mtt_count))
     seed = int(config.get("random_seed", 72001))
     lineup = dict(config.get("lineup", {}))
+    lineup_variants = list(config.get("lineup_variants", config.get("bot_lineup", [])) or [])
     engine_config = default_engine_config()
     engine_config.update(dict(config.get("engine", {})))
 
@@ -111,9 +90,13 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     partial_summary_path = artifact_root / "partial_summary.json"
     started = time.perf_counter()
     write_events = bool(config.get("write_events", False))
+    configured_populations = set(str(key) for key in lineup)
+    for spec in lineup_variants:
+        spec_type = str(spec.get("type") or spec.get("bot") or spec.get("bot_type") or spec.get("class") or "")
+        configured_populations.add(str(spec.get("population") or BOT_REGISTRY[spec_type].population))
 
     def name_to_population_from_results() -> Dict[str, str]:
-        prefixes = tuple(sorted((str(key) + "_" for key in lineup), key=len, reverse=True))
+        prefixes = tuple(sorted((population + "_" for population in configured_populations), key=len, reverse=True))
         mapping = {}
         for row in all_results:
             name = str(row.get("name", ""))
@@ -142,6 +125,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
                 "tournament_id": tournament_id,
                 "seed": seed + 100000 + index,
                 "lineup": lineup,
+                "lineup_variants": lineup_variants,
                 "engine_config": engine_config,
                 "write_events": write_events,
             }
@@ -185,6 +169,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "artifact_root": str(artifact_root),
         "lineup": lineup,
+        "lineup_variants": lineup_variants,
         "mtt_count": mtt_count,
         "workers": workers,
         "random_seed": seed,
