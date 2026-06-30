@@ -99,6 +99,27 @@ class TablePreflopSpotTypeTests(unittest.TestCase):
             self.assertNotIn("opponent_hole_cards", state)
             self.assertNotIn("cards", state["table_stats"])
 
+    def test_postflop_state_includes_preflop_pot_after_bets_reset(self):
+        table = Table(table_id=1)
+        bots = [
+            _ScriptedBot("P0", [("call", 0), ("call", 0)]),
+            _ScriptedBot("P1", [("call", 0), ("call", 0)]),
+            _ScriptedBot("P2", [("call", 0), ("call", 0)]),
+        ]
+        for bot in bots:
+            player = PlayerState(bot, 1000)
+            player.is_active = True
+            table.add_player(player)
+
+        _active_players, events = table.play_hand({"small": 10, "big": 20})
+
+        flop_actions = [
+            event for event in events
+            if event.get("type") == "action" and event.get("street") == "flop"
+        ]
+        self.assertTrue(flop_actions)
+        self.assertGreaterEqual(flop_actions[0]["pot_size"], 60)
+
     def test_table_stats_are_public_and_chronological(self):
         table = Table(table_id=1)
         bots = [_RecordingBot(f"P{index}") for index in range(3)]

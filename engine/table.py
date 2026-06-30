@@ -65,8 +65,9 @@ class Table:
         position: str = "",
         call_amount: int = 0,
         pot_size: int = 0,
+        tool_event: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        return {
+        event = {
             "type": "action",
             "table_id": self.table_id,
             "hand_id": self.hand_id,
@@ -79,6 +80,9 @@ class Table:
             "call_amount": call_amount,
             "pot_size": pot_size,
         }
+        if tool_event:
+            event["tool_event"] = dict(tool_event)
+        return event
 
     def play_hand(self, blinds: Dict[str, int]) -> Tuple[List[PlayerState], List[Dict]]:
         """
@@ -188,6 +192,9 @@ class Table:
     def _players_who_can_act(self) -> int:
          return sum(1 for p in self.players if p.is_active and not p.is_all_in)
 
+    def _visible_pot_size(self) -> int:
+        return sum(max(0, int(p.total_bet)) for p in self.players)
+
     def _preflop_spot_type(
         self,
         *,
@@ -273,7 +280,7 @@ class Table:
                     state = {
                         "hole_cards": player.hole_cards,
                         "board_cards": board,
-                        "pot_size": sum(p.current_bet for p in self.players) + pot_manager.get_total_amount(),
+                        "pot_size": self._visible_pot_size(),
                         "stack_size": player.stack,
                         "avg_table_stack": sum(p.stack for p in self.players) / max(1, len(self.players)),
                         "table_stacks": [p.stack for p in self.players],
@@ -325,6 +332,9 @@ class Table:
 
                     action_position = str(state.get("position", ""))
                     action_pot_size = int(state.get("pot_size", 0) or 0)
+                    action_tool_event = state.get("_bot_tool_event")
+                    if not isinstance(action_tool_event, dict):
+                        action_tool_event = None
 
                     if action == "fold" and call_amount > 0:
                         player.is_active = False
@@ -336,6 +346,7 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
+                            tool_event=action_tool_event,
                         )
                         events.append(event)
                         self.stats_tracker.observe_event(event)
@@ -349,6 +360,7 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
+                            tool_event=action_tool_event,
                         )
                         events.append(event)
                         self.stats_tracker.observe_event(event)
@@ -371,6 +383,7 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
+                            tool_event=action_tool_event,
                         )
                         events.append(event)
                         self.stats_tracker.observe_event(event)
@@ -408,6 +421,7 @@ class Table:
                                 position=action_position,
                                 call_amount=call_amount,
                                 pot_size=action_pot_size,
+                                tool_event=action_tool_event,
                             )
                             events.append(event)
                             self.stats_tracker.observe_event(event)
@@ -420,6 +434,7 @@ class Table:
                                 position=action_position,
                                 call_amount=call_amount,
                                 pot_size=action_pot_size,
+                                tool_event=action_tool_event,
                             )
                             events.append(event)
                             self.stats_tracker.observe_event(event)

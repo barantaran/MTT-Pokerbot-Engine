@@ -332,6 +332,13 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
             "saw_flop_count": 0,
             "showdown_count": 0,
             "won_showdown_count": 0,
+            "tool_event_counts": {},
+            "tool_decision_counts": {},
+            "tool_reject_reason_counts": {},
+            "tool_action_counts": {},
+            "tool_action_amount_total": {},
+            "tool_action_context_totals": {},
+            "tool_action_context_averages": {},
         }
 
     for event in events:
@@ -415,6 +422,37 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
         elif action == "call" and street != "preflop":
             summary["postflop_call_count"] += 1
 
+        tool_event = event.get("tool_event")
+        if isinstance(tool_event, dict):
+            tool_name = str(tool_event.get("tool", "") or "")
+            if tool_name:
+                decision = str(tool_event.get("decision", "") or "unknown")
+                reason = str(tool_event.get("reason", "") or "")
+                summary["tool_event_counts"][tool_name] = int(summary["tool_event_counts"].get(tool_name, 0)) + 1
+                tool_decisions = summary["tool_decision_counts"].setdefault(tool_name, {})
+                tool_decisions[decision] = int(tool_decisions.get(decision, 0)) + 1
+                if reason:
+                    tool_reasons = summary["tool_reject_reason_counts"].setdefault(tool_name, {})
+                    tool_reasons[reason] = int(tool_reasons.get(reason, 0)) + 1
+                if decision == "force_raise":
+                    summary["tool_action_counts"][tool_name] = int(summary["tool_action_counts"].get(tool_name, 0)) + 1
+                    summary["tool_action_amount_total"][tool_name] = int(summary["tool_action_amount_total"].get(tool_name, 0)) + amount
+                    tool_totals = summary["tool_action_context_totals"].setdefault(tool_name, {})
+                    for key in (
+                        "equity",
+                        "raise_threshold",
+                        "threshold_gap",
+                        "fold_equity",
+                        "pot_size",
+                        "stack_bb",
+                        "payout_pressure",
+                        "active_players",
+                    ):
+                        try:
+                            tool_totals[key] = float(tool_totals.get(key, 0.0)) + float(tool_event.get(key, 0.0) or 0.0)
+                        except (TypeError, ValueError):
+                            pass
+
     action_candidate_ids = (
         set(stats)
         | set(dealt_hands)
@@ -496,6 +534,13 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
         summary["wtsd"] = float(summary["showdown_count"]) / saw_flop_count if saw_flop_count > 0 else 0.0
         showdown_count = int(summary["showdown_count"])
         summary["wsd"] = float(summary["won_showdown_count"]) / showdown_count if showdown_count > 0 else 0.0
+        summary["tool_action_context_averages"] = {}
+        for tool_name, count in dict(summary.get("tool_action_counts", {})).items():
+            total_count = max(1, int(count))
+            totals = dict(summary.get("tool_action_context_totals", {}).get(tool_name, {}))
+            summary["tool_action_context_averages"][tool_name] = {
+                key: float(value) / total_count for key, value in sorted(totals.items())
+            }
     return stats
 
 
@@ -525,6 +570,13 @@ def merge_candidate_action_summaries(summaries: Iterable[Dict[str, Any]]) -> Dic
             "saw_flop_count": 0,
             "showdown_count": 0,
             "won_showdown_count": 0,
+            "tool_event_counts": {},
+            "tool_decision_counts": {},
+            "tool_reject_reason_counts": {},
+            "tool_action_counts": {},
+            "tool_action_amount_total": {},
+            "tool_action_context_totals": {},
+            "tool_action_context_averages": {},
         }
 
     for action_summary in summaries:
@@ -555,6 +607,32 @@ def merge_candidate_action_summaries(summaries: Iterable[Dict[str, Any]]) -> Dic
                 target_street = target["street_action_counts"].setdefault(str(street), {})
                 for action, count in dict(street_counts).items():
                     target_street[str(action)] = int(target_street.get(str(action), 0)) + int(count)
+            for tool_name, count in dict(row.get("tool_event_counts", {})).items():
+                tool_name = str(tool_name)
+                target["tool_event_counts"][tool_name] = int(target["tool_event_counts"].get(tool_name, 0)) + int(count)
+            for tool_name, decision_counts in dict(row.get("tool_decision_counts", {})).items():
+                target_decisions = target["tool_decision_counts"].setdefault(str(tool_name), {})
+                for decision, count in dict(decision_counts).items():
+                    target_decisions[str(decision)] = int(target_decisions.get(str(decision), 0)) + int(count)
+            for tool_name, reason_counts in dict(row.get("tool_reject_reason_counts", {})).items():
+                target_reasons = target["tool_reject_reason_counts"].setdefault(str(tool_name), {})
+                for reason, count in dict(reason_counts).items():
+                    target_reasons[str(reason)] = int(target_reasons.get(str(reason), 0)) + int(count)
+            for tool_name, count in dict(row.get("tool_action_counts", {})).items():
+                tool_name = str(tool_name)
+                target["tool_action_counts"][tool_name] = int(target["tool_action_counts"].get(tool_name, 0)) + int(count)
+            for tool_name, amount in dict(row.get("tool_action_amount_total", {})).items():
+                tool_name = str(tool_name)
+                target["tool_action_amount_total"][tool_name] = (
+                    int(target["tool_action_amount_total"].get(tool_name, 0)) + int(amount)
+                )
+            for tool_name, totals in dict(row.get("tool_action_context_totals", {})).items():
+                target_totals = target["tool_action_context_totals"].setdefault(str(tool_name), {})
+                for key, value in dict(totals).items():
+                    try:
+                        target_totals[str(key)] = float(target_totals.get(str(key), 0.0)) + float(value)
+                    except (TypeError, ValueError):
+                        pass
 
     for row in merged.values():
         total = max(1, int(row["action_total"]))
@@ -590,6 +668,13 @@ def merge_candidate_action_summaries(summaries: Iterable[Dict[str, Any]]) -> Dic
         row["wtsd"] = float(row["showdown_count"]) / saw_flop_count if saw_flop_count > 0 else 0.0
         showdown_count = int(row["showdown_count"])
         row["wsd"] = float(row["won_showdown_count"]) / showdown_count if showdown_count > 0 else 0.0
+        row["tool_action_context_averages"] = {}
+        for tool_name, count in dict(row.get("tool_action_counts", {})).items():
+            total_count = max(1, int(count))
+            totals = dict(row.get("tool_action_context_totals", {}).get(tool_name, {}))
+            row["tool_action_context_averages"][tool_name] = {
+                key: float(value) / total_count for key, value in sorted(totals.items())
+            }
     return merged
 
 

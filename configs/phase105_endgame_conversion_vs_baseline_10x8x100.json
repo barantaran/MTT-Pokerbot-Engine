@@ -1,39 +1,41 @@
 {
-  "run_id": "phase106_dampened_player_range_vs_no_range_10x8x100",
+  "run_id": "phase105_endgame_conversion_vs_baseline_10x8x100",
   "mtt_count": 80,
   "workers": 4,
-  "random_seed": 106010,
+  "random_seed": 105010,
   "lineup": {},
   "lineup_variants": [
     {
       "type": "configured_tournament_equity",
-      "population": "configured_tournament_equity_player_range_dampened",
+      "population": "configured_tournament_equity_player_range_endgame",
       "count": 50,
       "params": {
         "use_preflop_spot_range": true,
-        "range_profile": "player",
-        "range_influence": {
-          "default": 1.0,
-          "srp": 0.45,
-          "single_raised": 0.45,
-          "three_bet": 0.30,
-          "3bet": 0.30,
-          "four_bet": 0.25,
-          "4bet": 0.25,
-          "five_bet_plus": 0.25,
-          "five_bet": 0.25,
-          "5bet": 0.25,
-          "all_in_pressure": 0.35,
-          "allin": 0.35
-        }
+        "range_profile": "player"
       }
     },
     {
       "type": "configured_tournament_equity",
-      "population": "configured_tournament_equity_no_range",
+      "population": "configured_tournament_equity_baseline",
       "count": 50,
       "params": {
-        "use_preflop_spot_range": false
+        "use_preflop_spot_range": false,
+        "tools": [
+          {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": true},
+          {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
+          {
+            "type": "button_steal",
+            "priority": 40,
+            "sample_quality_min": 0.50,
+            "max_vpip": 0.30,
+            "max_pfr": 0.16,
+            "max_three_bet_rate": 0.08,
+            "base_discount": 0.018,
+            "tightness_multiplier": 0.12,
+            "max_discount": 0.040,
+            "requires_table_sample": true
+          }
+        ]
       }
     }
   ],

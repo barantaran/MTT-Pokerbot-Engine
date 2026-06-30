@@ -38,12 +38,20 @@ class TournamentEquityBot(Bot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        raise_sizing: str = "legacy",
+        pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
+        pot_bucket_edge_step: float = 0.05,
+        pot_bucket_all_in_spr: float = 1.25,
         tools=None,
     ):
         super().__init__("TournamentEquityBot")
         self.use_preflop_spot_range = bool(use_preflop_spot_range)
         self.range_profile = str(range_profile or "legacy")
         self.range_influence = range_influence
+        self.raise_sizing = str(raise_sizing or "legacy")
+        self.pot_size_buckets = tuple(float(bucket) for bucket in pot_size_buckets)
+        self.pot_bucket_edge_step = max(0.01, float(pot_bucket_edge_step))
+        self.pot_bucket_all_in_spr = max(0.0, float(pot_bucket_all_in_spr))
         self.tools = build_bot_tools(tools)
 
     def get_action(self, game_state):
@@ -135,6 +143,8 @@ class TournamentEquityBot(Bot):
                     spot_type=spot_type,
                     position=position,
                 ),
+                pot_size=pot_size,
+                max_raise_extra=max_raise_extra,
             ),
             game_state,
         )
@@ -144,12 +154,27 @@ class TournamentEquityBot(Bot):
         raise_threshold = context.raise_threshold
         jam_threshold = context.jam_threshold
 
+        if context.tool_event is not None:
+            game_state["_bot_tool_event"] = dict(context.tool_event)
+
+        if context.forced_action is not None:
+            return context.forced_action
+
         if can_raise and self._should_jam(
             equity=equity,
             jam_threshold=jam_threshold,
             stack_bb=stack_bb,
             stack_size=stack_size,
             call_amount=call_amount,
+        ):
+            return ("raise", max_raise_extra)
+
+        if can_raise and self._should_sizing_jam(
+            street=street,
+            equity=equity,
+            jam_threshold=jam_threshold,
+            pot_size=pot_size,
+            max_raise_extra=max_raise_extra,
         ):
             return ("raise", max_raise_extra)
 
@@ -165,6 +190,8 @@ class TournamentEquityBot(Bot):
                 max_raise_extra=max_raise_extra,
                 spot_type=spot_type,
                 position=position,
+                equity=equity,
+                raise_threshold=raise_threshold,
             ))
 
         return ("call", 0) if call_amount == 0 or equity >= required_equity + call_margin else ("fold", 0)
@@ -226,7 +253,40 @@ class TournamentEquityBot(Bot):
         committed_fraction = call_amount / float(stack_size)
         return committed_fraction >= 0.70
 
-    def _raise_size(self, *, street, pot_size, big_blind, min_raise, max_raise_extra, spot_type, position):
+    def _should_sizing_jam(self, *, street, equity, jam_threshold, pot_size, max_raise_extra):
+        if self.raise_sizing not in {"pot_buckets", "postflop_pot_buckets"}:
+            return False
+        if street == 0 or pot_size <= 0 or max_raise_extra <= 0:
+            return False
+        if equity < jam_threshold:
+            return False
+        return max_raise_extra <= pot_size * self.pot_bucket_all_in_spr
+
+    def _raise_size(
+        self,
+        *,
+        street,
+        pot_size,
+        big_blind,
+        min_raise,
+        max_raise_extra,
+        spot_type,
+        position,
+        equity=None,
+        raise_threshold=None,
+    ):
+        use_pot_buckets = self.raise_sizing == "pot_buckets" or (
+            self.raise_sizing == "postflop_pot_buckets" and street > 0
+        )
+        if use_pot_buckets:
+            target = self._pot_bucket_raise_size(
+                pot_size=pot_size,
+                big_blind=big_blind,
+                min_raise=min_raise,
+                equity=equity,
+                raise_threshold=raise_threshold,
+            )
+            return min(max_raise_extra, target)
         if street == 0:
             target = self._open_size(
                 street=street,
@@ -238,6 +298,17 @@ class TournamentEquityBot(Bot):
         else:
             target = max(min_raise, int(max(big_blind, pot_size * 0.60)))
         return min(max_raise_extra, target)
+
+    def _pot_bucket_raise_size(self, *, pot_size, big_blind, min_raise, equity, raise_threshold):
+        buckets = self.pot_size_buckets or (0.33, 0.50, 0.75, 1.00, 1.25)
+        if raise_threshold is None or equity is None:
+            bucket = buckets[0]
+        else:
+            edge = max(0.0, float(equity) - float(raise_threshold))
+            bucket_index = min(len(buckets) - 1, int(edge / self.pot_bucket_edge_step))
+            bucket = buckets[bucket_index]
+        target = int(max(big_blind, pot_size * float(bucket)))
+        return max(int(min_raise or 0), target)
 
     def _apply_tools(self, context, game_state):
         for tool in self.tools:
@@ -323,6 +394,10 @@ class TournamentEquityBotV2(TournamentEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        raise_sizing: str = "legacy",
+        pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
+        pot_bucket_edge_step: float = 0.05,
+        pot_bucket_all_in_spr: float = 1.25,
         preflop_reraise_tightness: float = 0.08,
         tools=None,
     ):
@@ -330,6 +405,10 @@ class TournamentEquityBotV2(TournamentEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            raise_sizing=raise_sizing,
+            pot_size_buckets=pot_size_buckets,
+            pot_bucket_edge_step=pot_bucket_edge_step,
+            pot_bucket_all_in_spr=pot_bucket_all_in_spr,
             tools=tools,
         )
         self.name = "TournamentEquityBotV2"
@@ -365,6 +444,10 @@ class TournamentICMEquityBot(TournamentEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        raise_sizing: str = "legacy",
+        pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
+        pot_bucket_edge_step: float = 0.05,
+        pot_bucket_all_in_spr: float = 1.25,
         use_icm: bool = True,
         icm_strength: float = 1.0,
         tools=None,
@@ -373,6 +456,10 @@ class TournamentICMEquityBot(TournamentEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            raise_sizing=raise_sizing,
+            pot_size_buckets=pot_size_buckets,
+            pot_bucket_edge_step=pot_bucket_edge_step,
+            pot_bucket_all_in_spr=pot_bucket_all_in_spr,
             tools=tools,
         )
         self.name = "TournamentICMEquityBot"
@@ -467,6 +554,10 @@ class AdaptiveTournamentICMEquityBot(TournamentICMEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        raise_sizing: str = "legacy",
+        pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
+        pot_bucket_edge_step: float = 0.05,
+        pot_bucket_all_in_spr: float = 1.25,
         use_icm: bool = True,
         icm_strength: float = 1.0,
         tools=None,
@@ -475,6 +566,10 @@ class AdaptiveTournamentICMEquityBot(TournamentICMEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            raise_sizing=raise_sizing,
+            pot_size_buckets=pot_size_buckets,
+            pot_bucket_edge_step=pot_bucket_edge_step,
+            pot_bucket_all_in_spr=pot_bucket_all_in_spr,
             use_icm=use_icm,
             icm_strength=icm_strength,
             tools=tools,
@@ -555,6 +650,8 @@ class ConfiguredTournamentEquityBot(TournamentEquityBot):
 
     This class keeps the base equity, position, sizing, and jam mechanics, but
     turns tournament pressure and table exploits into a configurable tool stack.
+    It intentionally does not load a hidden default tool set; callers must pass
+    every enabled tool explicitly.
     """
 
     DEFAULT_TOOLS = (
@@ -581,13 +678,21 @@ class ConfiguredTournamentEquityBot(TournamentEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        raise_sizing: str = "legacy",
+        pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
+        pot_bucket_edge_step: float = 0.05,
+        pot_bucket_all_in_spr: float = 1.25,
         tools=None,
     ):
         super().__init__(
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
-            tools=self.DEFAULT_TOOLS if tools is None else tools,
+            raise_sizing=raise_sizing,
+            pot_size_buckets=pot_size_buckets,
+            pot_bucket_edge_step=pot_bucket_edge_step,
+            pot_bucket_all_in_spr=pot_bucket_all_in_spr,
+            tools=[] if tools is None else tools,
         )
         self.name = "ConfiguredTournamentEquityBot"
 
@@ -626,6 +731,10 @@ class ButtonStealTournamentICMEquityBot(TournamentICMEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        raise_sizing: str = "legacy",
+        pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
+        pot_bucket_edge_step: float = 0.05,
+        pot_bucket_all_in_spr: float = 1.25,
         use_icm: bool = True,
         icm_strength: float = 1.0,
         tools=None,
@@ -634,6 +743,10 @@ class ButtonStealTournamentICMEquityBot(TournamentICMEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            raise_sizing=raise_sizing,
+            pot_size_buckets=pot_size_buckets,
+            pot_bucket_edge_step=pot_bucket_edge_step,
+            pot_bucket_all_in_spr=pot_bucket_all_in_spr,
             use_icm=use_icm,
             icm_strength=icm_strength,
             tools=self.DEFAULT_TOOLS if tools is None else tools,

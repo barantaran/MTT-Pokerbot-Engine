@@ -74,11 +74,35 @@ _SPEC_KEYS = {
     "bot_type",
     "class",
     "count",
+    "include_tool_set_in_name",
     "name",
     "name_prefix",
+    "name_tool_set",
     "params",
     "population",
     "type",
+}
+
+_TOOL_NAME_ALIASES = {
+    "icm_pressure": "icm",
+    "preflop_reraise_tightness": "reraise",
+    "table_adaptation": "table",
+    "button_steal": "steal",
+    "endgame_conversion": "endgame",
+    "bluff_pressure": "bluff",
+}
+
+_POPULATION_NAME_ALIASES = {
+    "configured_tournament_equity": "conf_mtt_eq",
+    "configured_tournament_equity_baseline": "conf_mtt_eq",
+    "configured_tournament_equity_range": "conf_mtt_eq_range",
+    "configured_tournament_equity_legacy_range": "conf_mtt_eq_legacy_range",
+    "configured_tournament_equity_adaptive_range": "conf_mtt_eq_adaptive_range",
+    "configured_tournament_equity_player_range": "conf_mtt_eq_player_range",
+    "configured_tournament_equity_player_range_dampened": "conf_mtt_eq_player_range_damped",
+    "configured_tournament_equity_player_range_dampened_postflop_pot": "conf_mtt_eq_player_range_damped_postflop_pot",
+    "configured_tournament_equity_player_range_dampened_postflop_pot_capped": "conf_mtt_eq_player_range_damped_postflop_pot_capped",
+    "configured_tournament_equity_player_range_dampened_postflop_pot_capped_bluff": "conf_mtt_eq_player_range_damped_postflop_pot_capped",
 }
 
 
@@ -139,11 +163,16 @@ def build_configurable_bots(
             continue
         bot_type = str(spec.get("type") or spec.get("bot") or spec.get("bot_type") or spec.get("class") or "")
         definition = _definition_for(bot_type)
-        population = str(spec.get("population") or definition.population)
         params = _default_params(definition, use_ranges=use_ranges)
         params.update(_inline_params(spec))
         params.update(dict(spec.get("params", {}) or {}))
         _validate_params(definition.bot_class, params)
+        population = str(spec.get("population") or definition.population)
+        name_prefix = str(spec.get("name_prefix") or "") or None
+        if _include_tool_set_in_name(spec, definition, params):
+            population = _population_with_tool_set(population, params)
+            if name_prefix is not None:
+                name_prefix = _population_with_tool_set(name_prefix, params)
         for index in range(count):
             name = str(spec.get("name") or "") or None
             if name is not None and count > 1:
@@ -152,10 +181,24 @@ def build_configurable_bots(
                 _instantiate(definition, params),
                 population,
                 name=name,
-                name_prefix=str(spec.get("name_prefix") or "") or None,
+                name_prefix=name_prefix,
             )
 
     return bots, name_to_population
+
+
+def population_for_spec(spec: Mapping[str, Any], *, use_ranges: bool = False) -> str:
+    raw_spec = dict(spec)
+    bot_type = str(raw_spec.get("type") or raw_spec.get("bot") or raw_spec.get("bot_type") or raw_spec.get("class") or "")
+    definition = _definition_for(bot_type)
+    params = _default_params(definition, use_ranges=use_ranges)
+    params.update(_inline_params(raw_spec))
+    params.update(dict(raw_spec.get("params", {}) or {}))
+    _validate_params(definition.bot_class, params)
+    population = str(raw_spec.get("population") or definition.population)
+    if _include_tool_set_in_name(raw_spec, definition, params):
+        population = _population_with_tool_set(population, params)
+    return population
 
 
 def _definition_for(bot_type: str) -> BotDefinition:
@@ -213,3 +256,48 @@ def _validate_params(bot_class: type, params: Mapping[str, Any]) -> None:
 def _instantiate(definition: BotDefinition, params: Mapping[str, Any]) -> Any:
     _validate_params(definition.bot_class, params)
     return definition.bot_class(**dict(params))
+
+
+def _include_tool_set_in_name(spec: Mapping[str, Any], definition: BotDefinition, params: Mapping[str, Any]) -> bool:
+    explicit = spec.get("include_tool_set_in_name", spec.get("name_tool_set"))
+    if explicit is not None:
+        return bool(explicit)
+    if spec.get("name") or spec.get("population"):
+        return False
+    return _accepts_param(definition.bot_class, "tools") and "tools" in params
+
+
+def _population_with_tool_set(population: str, params: Mapping[str, Any]) -> str:
+    return f"{_population_name_alias(population)}_{_tool_set_signature(params.get('tools'))}"
+
+
+def _population_name_alias(population: str) -> str:
+    return _POPULATION_NAME_ALIASES.get(population, population)
+
+
+def _tool_set_signature(tools: Any) -> str:
+    if tools is None:
+        return "none"
+    names: list[str] = []
+    for raw_tool in tools:
+        if isinstance(raw_tool, str):
+            name = raw_tool
+        elif isinstance(raw_tool, Mapping):
+            name = str(raw_tool.get("type") or raw_tool.get("name") or "unknown")
+        else:
+            name = str(getattr(raw_tool, "name", "") or raw_tool.__class__.__name__)
+        names.append(_slug(_TOOL_NAME_ALIASES.get(name, name)))
+    return "_".join(name for name in names if name) or "none"
+
+
+def _slug(value: str) -> str:
+    chars = []
+    previous_underscore = False
+    for char in str(value).lower():
+        if char.isalnum():
+            chars.append(char)
+            previous_underscore = False
+        elif not previous_underscore:
+            chars.append("_")
+            previous_underscore = True
+    return "".join(chars).strip("_")

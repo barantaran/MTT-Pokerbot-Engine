@@ -1,5 +1,5 @@
 {
-  "run_id": "phase100_configured_range_vs_no_range_vs_tight_8x200",
+  "run_id": "phase100_configured_range_vs_baseline_vs_tight_8x200",
   "mtt_count": 8,
   "workers": 8,
   "random_seed": 100001,
@@ -16,7 +16,6 @@
         "tools": [
           {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": true},
           {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
-          {"type": "table_adaptation", "priority": 35, "sample_quality_min": 0.5},
           {
             "type": "button_steal",
             "priority": 40,
@@ -34,14 +33,13 @@
     },
     {
       "type": "configured_tournament_equity",
-      "population": "configured_tournament_equity_no_range",
+      "population": "configured_tournament_equity_baseline",
       "count": 50,
       "params": {
         "use_preflop_spot_range": false,
         "tools": [
           {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": true},
           {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
-          {"type": "table_adaptation", "priority": 35, "sample_quality_min": 0.5},
           {
             "type": "button_steal",
             "priority": 40,

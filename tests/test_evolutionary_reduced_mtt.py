@@ -212,6 +212,109 @@ class EvolutionaryReducedMttTests(unittest.TestCase):
         self.assertEqual(summary["caller"]["wtsd"], 1.0)
         self.assertEqual(summary["caller"]["wsd"], 0.0)
 
+    def test_candidate_action_summary_reports_tool_trigger_context(self):
+        events = [
+            {
+                "type": "action",
+                "table_id": 1,
+                "hand_id": 1,
+                "tournament_id": 1,
+                "player": "candidate_001_entry_001",
+                "action": "raise",
+                "amount": 120,
+                "street": "flop",
+                "tool_event": {
+                    "tool": "bluff_pressure",
+                    "decision": "force_raise",
+                    "equity": 0.48,
+                    "raise_threshold": 0.60,
+                    "threshold_gap": 0.12,
+                    "fold_equity": 0.55,
+                    "pot_size": 360,
+                    "stack_bb": 24,
+                    "payout_pressure": 0.1,
+                    "active_players": 2,
+                },
+            },
+            {
+                "type": "action",
+                "table_id": 1,
+                "hand_id": 2,
+                "tournament_id": 1,
+                "player": "candidate_001_entry_001",
+                "action": "raise",
+                "amount": 180,
+                "street": "turn",
+                "tool_event": {
+                    "tool": "bluff_pressure",
+                    "decision": "force_raise",
+                    "equity": 0.52,
+                    "raise_threshold": 0.64,
+                    "threshold_gap": 0.12,
+                    "fold_equity": 0.60,
+                    "pot_size": 540,
+                    "stack_bb": 18,
+                    "payout_pressure": 0.2,
+                    "active_players": 2,
+                },
+            },
+        ]
+
+        summary = summarize_candidate_actions(events, {"candidate_001_entry_001": "candidate_001"})
+
+        self.assertEqual(summary["candidate_001"]["tool_action_counts"], {"bluff_pressure": 2})
+        self.assertEqual(summary["candidate_001"]["tool_event_counts"], {"bluff_pressure": 2})
+        self.assertEqual(summary["candidate_001"]["tool_decision_counts"], {"bluff_pressure": {"force_raise": 2}})
+        self.assertEqual(summary["candidate_001"]["tool_action_amount_total"], {"bluff_pressure": 300})
+        averages = summary["candidate_001"]["tool_action_context_averages"]["bluff_pressure"]
+        self.assertAlmostEqual(averages["equity"], 0.50)
+        self.assertAlmostEqual(averages["fold_equity"], 0.575)
+        self.assertAlmostEqual(averages["pot_size"], 450.0)
+
+    def test_candidate_action_summary_reports_tool_reject_reasons(self):
+        events = [
+            {
+                "type": "action",
+                "table_id": 1,
+                "hand_id": 1,
+                "tournament_id": 1,
+                "player": "candidate_001_entry_001",
+                "action": "check",
+                "amount": 0,
+                "street": "flop",
+                "tool_event": {
+                    "tool": "bluff_pressure",
+                    "decision": "reject",
+                    "reason": "threshold_gap",
+                    "equity": 0.48,
+                    "raise_threshold": 0.60,
+                    "threshold_gap": 0.12,
+                },
+            },
+            {
+                "type": "action",
+                "table_id": 1,
+                "hand_id": 2,
+                "tournament_id": 1,
+                "player": "candidate_001_entry_001",
+                "action": "check",
+                "amount": 0,
+                "street": "turn",
+                "tool_event": {
+                    "tool": "bluff_pressure",
+                    "decision": "reject",
+                    "reason": "threshold_gap",
+                },
+            },
+        ]
+
+        summary = summarize_candidate_actions(events, {"candidate_001_entry_001": "candidate_001"})
+
+        self.assertEqual(summary["candidate_001"]["tool_event_counts"], {"bluff_pressure": 2})
+        self.assertEqual(summary["candidate_001"]["tool_decision_counts"], {"bluff_pressure": {"reject": 2}})
+        self.assertEqual(summary["candidate_001"]["tool_reject_reason_counts"], {"bluff_pressure": {"threshold_gap": 2}})
+        self.assertEqual(summary["candidate_001"]["tool_action_counts"], {})
+
     def test_merge_candidate_action_summaries_recomputes_rates(self):
         merged = merge_candidate_action_summaries(
             [
@@ -229,6 +332,11 @@ class EvolutionaryReducedMttTests(unittest.TestCase):
                         "postflop_raise_count": 1,
                         "postflop_call_count": 1,
                         "street_action_counts": {"preflop": {"raise": 1}, "flop": {"call": 1}},
+                        "tool_event_counts": {"bluff_pressure": 1},
+                        "tool_decision_counts": {"bluff_pressure": {"force_raise": 1}},
+                        "tool_action_counts": {"bluff_pressure": 1},
+                        "tool_action_amount_total": {"bluff_pressure": 100},
+                        "tool_action_context_totals": {"bluff_pressure": {"equity": 0.50, "fold_equity": 0.55}},
                     }
                 },
                 {
@@ -245,6 +353,12 @@ class EvolutionaryReducedMttTests(unittest.TestCase):
                         "postflop_raise_count": 1,
                         "postflop_call_count": 0,
                         "street_action_counts": {"preflop": {"call": 1}, "turn": {"raise": 1}},
+                        "tool_event_counts": {"bluff_pressure": 2},
+                        "tool_decision_counts": {"bluff_pressure": {"force_raise": 1, "reject": 1}},
+                        "tool_reject_reason_counts": {"bluff_pressure": {"low_fold_equity": 1}},
+                        "tool_action_counts": {"bluff_pressure": 1},
+                        "tool_action_amount_total": {"bluff_pressure": 200},
+                        "tool_action_context_totals": {"bluff_pressure": {"equity": 0.54, "fold_equity": 0.65}},
                     }
                 },
             ]
@@ -265,6 +379,25 @@ class EvolutionaryReducedMttTests(unittest.TestCase):
         self.assertEqual(merged["candidate_001"]["postflop_call_count"], 1)
         self.assertEqual(merged["candidate_001"]["postflop_aggression_factor"], 2.0)
         self.assertEqual(merged["candidate_001"]["street_action_counts"]["preflop"], {"raise": 1, "call": 1})
+        self.assertEqual(merged["candidate_001"]["tool_event_counts"], {"bluff_pressure": 3})
+        self.assertEqual(
+            merged["candidate_001"]["tool_decision_counts"],
+            {"bluff_pressure": {"force_raise": 2, "reject": 1}},
+        )
+        self.assertEqual(
+            merged["candidate_001"]["tool_reject_reason_counts"],
+            {"bluff_pressure": {"low_fold_equity": 1}},
+        )
+        self.assertEqual(merged["candidate_001"]["tool_action_counts"], {"bluff_pressure": 2})
+        self.assertEqual(merged["candidate_001"]["tool_action_amount_total"], {"bluff_pressure": 300})
+        self.assertAlmostEqual(
+            merged["candidate_001"]["tool_action_context_averages"]["bluff_pressure"]["equity"],
+            0.52,
+        )
+        self.assertAlmostEqual(
+            merged["candidate_001"]["tool_action_context_averages"]["bluff_pressure"]["fold_equity"],
+            0.60,
+        )
 
     def test_mutate_checkpoint_changes_policy_head_only(self):
         engine_root = Path(__file__).resolve().parents[1]

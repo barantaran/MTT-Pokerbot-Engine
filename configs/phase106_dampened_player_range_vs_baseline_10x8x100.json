@@ -1,22 +1,36 @@
 {
-  "run_id": "phase102_configured_player_range_vs_no_range_10x8x100",
+  "run_id": "phase106_dampened_player_range_vs_baseline_10x8x100",
   "mtt_count": 80,
   "workers": 4,
-  "random_seed": 102010,
+  "random_seed": 106010,
   "lineup": {},
   "lineup_variants": [
     {
       "type": "configured_tournament_equity",
-      "population": "configured_tournament_equity_player_range",
+      "population": "configured_tournament_equity_player_range_dampened",
       "count": 50,
       "params": {
         "use_preflop_spot_range": true,
-        "range_profile": "player"
+        "range_profile": "player",
+        "range_influence": {
+          "default": 1.0,
+          "srp": 0.45,
+          "single_raised": 0.45,
+          "three_bet": 0.30,
+          "3bet": 0.30,
+          "four_bet": 0.25,
+          "4bet": 0.25,
+          "five_bet_plus": 0.25,
+          "five_bet": 0.25,
+          "5bet": 0.25,
+          "all_in_pressure": 0.35,
+          "allin": 0.35
+        }
       }
     },
     {
       "type": "configured_tournament_equity",
-      "population": "configured_tournament_equity_no_range",
+      "population": "configured_tournament_equity_baseline",
       "count": 50,
       "params": {
         "use_preflop_spot_range": false

@@ -109,6 +109,46 @@ class TournamentEquityBotTests(unittest.TestCase):
 
         self.assertEqual(action, ("raise", 50))
 
+    def test_configured_bot_can_use_pot_bucket_raise_sizes(self):
+        bot = ConfiguredTournamentEquityBot(raise_sizing="pot_buckets")
+
+        small_edge = bot.get_action(state(hero_equity=0.54, pot_size=300, stack_size=5000))
+        medium_edge = bot.get_action(state(hero_equity=0.59, pot_size=300, stack_size=5000))
+        large_edge = bot.get_action(state(hero_equity=0.76, pot_size=300, stack_size=5000))
+
+        self.assertEqual(small_edge, ("raise", 99))
+        self.assertEqual(medium_edge, ("raise", 150))
+        self.assertEqual(large_edge, ("raise", 375))
+
+    def test_configured_bot_can_use_postflop_only_pot_bucket_raise_sizes(self):
+        bot = ConfiguredTournamentEquityBot(raise_sizing="postflop_pot_buckets")
+
+        preflop_action = bot.get_action(state(hero_equity=0.70, pot_size=300, stack_size=5000))
+        flop_action = bot.get_action(
+            state(board_cards=[2, 3, 4], hero_equity=0.67, pot_size=300, stack_size=5000)
+        )
+
+        self.assertEqual(preflop_action, ("raise", 46))
+        self.assertEqual(flop_action, ("raise", 150))
+
+    def test_postflop_pot_bucket_sizing_can_choose_low_spr_all_in(self):
+        bot = ConfiguredTournamentEquityBot(raise_sizing="postflop_pot_buckets")
+
+        action = bot.get_action(
+            state(board_cards=[2, 3, 4], hero_equity=0.80, pot_size=500, stack_size=600)
+        )
+
+        self.assertEqual(action, ("raise", 600))
+
+    def test_pot_bucket_raise_size_respects_min_raise_and_stack(self):
+        bot = ConfiguredTournamentEquityBot(raise_sizing="pot_buckets")
+
+        min_raise_action = bot.get_action(state(hero_equity=0.80, pot_size=30, min_raise=80, stack_size=5000))
+        capped_action = bot.get_action(state(hero_equity=0.80, pot_size=500, min_raise=20, stack_size=500))
+
+        self.assertEqual(min_raise_action, ("raise", 80))
+        self.assertEqual(capped_action, ("raise", 500))
+
     def test_short_stack_strong_hand_jams(self):
         bot = TournamentEquityBot()
 
@@ -387,7 +427,7 @@ class TournamentEquityBotTests(unittest.TestCase):
         self.assertEqual(action, ("call", 0))
 
     def test_configured_bot_applies_icm_as_tool(self):
-        bot = ConfiguredTournamentEquityBot()
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "icm_pressure"}])
 
         action = bot.get_action(
             state(
@@ -402,6 +442,11 @@ class TournamentEquityBotTests(unittest.TestCase):
         )
 
         self.assertEqual(action, ("fold", 0))
+
+    def test_configured_bot_has_no_implicit_tools(self):
+        bot = ConfiguredTournamentEquityBot()
+
+        self.assertEqual(bot.tools, [])
 
     def test_configured_bot_applies_table_adaptation_as_tool(self):
         bot = ConfiguredTournamentEquityBot(tools=[{"type": "table_adaptation"}])
@@ -476,6 +521,161 @@ class TournamentEquityBotTests(unittest.TestCase):
             stack_size=300,
             table_stacks=[300, 280, 260, 240, 220, 200, 180, 160, 140],
             hero_table_index=0,
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_bluff_pressure_tool_bets_checked_to_flop_against_tight_table(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "max_threshold_gap": 0.12,
+        }])
+
+        game_state = state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.50,
+            pot_size=300,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("raise", 99))
+        self.assertEqual(game_state["_bot_tool_event"]["tool"], "bluff_pressure")
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "force_raise")
+        self.assertAlmostEqual(game_state["_bot_tool_event"]["equity"], 0.50)
+        self.assertAlmostEqual(game_state["_bot_tool_event"]["fold_equity"], 0.605)
+
+    def test_bluff_pressure_threshold_mode_widens_close_flop_raise(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "mode": "threshold",
+            "threshold_discount": 0.04,
+            "max_threshold_gap": 0.06,
+            "max_equity": 0.59,
+        }])
+
+        game_state = state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.57,
+            pot_size=300,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("raise", 180))
+        self.assertEqual(game_state["_bot_tool_event"]["tool"], "bluff_pressure")
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "threshold_discount")
+        self.assertAlmostEqual(game_state["_bot_tool_event"]["threshold_discount"], 0.04525)
+        self.assertNotIn("forced_action", game_state["_bot_tool_event"])
+
+    def test_bluff_pressure_tool_does_not_bluff_multiway(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "max_threshold_gap": 0.12,
+        }])
+
+        action = bot.get_action(state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.50,
+            pot_size=300,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=3,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_bluff_pressure_tool_requires_sample_quality(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "max_threshold_gap": 0.12,
+        }])
+
+        game_state = state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.50,
+            pot_size=300,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 0.20,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("call", 0))
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "reject")
+        self.assertEqual(game_state["_bot_tool_event"]["reason"], "low_fold_equity")
+
+    def test_bluff_pressure_tool_requires_position_or_initiative(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "bluff_pressure"}])
+
+        action = bot.get_action(state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.45,
+            pot_size=300,
+            position="SB",
+            preflop_spot_type="limped",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        ))
+
+        self.assertEqual(action, ("call", 0))
+
+    def test_bluff_pressure_tool_requires_positive_bet_ev_edge(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "min_fold_equity": 0.40,
+            "min_equity": 0.24,
+            "max_threshold_gap": 0.40,
+            "flop_size": 3.0,
+            "max_stack_fraction": 1.0,
+        }])
+
+        action = bot.get_action(state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.24,
+            pot_size=300,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.24,
+                "pfr": 0.16,
+                "three_bet_rate": 0.08,
+            },
         ))
 
         self.assertEqual(action, ("call", 0))

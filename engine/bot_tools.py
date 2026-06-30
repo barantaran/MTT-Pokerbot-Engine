@@ -24,6 +24,10 @@ class DecisionContext:
     big_blind: int
     payout_pressure: float
     open_size: int
+    pot_size: int
+    max_raise_extra: int
+    forced_action: tuple[str, int] | None = None
+    tool_event: Dict[str, Any] | None = None
 
     def with_raise_threshold(self, value: float) -> "DecisionContext":
         return replace(self, raise_threshold=max(0.36, min(0.90, float(value))))
@@ -36,6 +40,12 @@ class DecisionContext:
 
     def with_payout_pressure(self, value: float) -> "DecisionContext":
         return replace(self, payout_pressure=max(0.0, min(1.0, float(value))))
+
+    def with_forced_action(self, action: str, amount: int = 0) -> "DecisionContext":
+        return replace(self, forced_action=(str(action), max(0, int(amount))))
+
+    def with_tool_event(self, event: Mapping[str, Any]) -> "DecisionContext":
+        return replace(self, tool_event=dict(event))
 
 
 class BotTool(Protocol):
@@ -461,6 +471,230 @@ class EndgameConversionTool:
             return 0.0
 
 
+class BluffPressureTool:
+    name = "bluff_pressure"
+
+    def __init__(
+        self,
+        *,
+        priority: int = 46,
+        enabled: bool = True,
+        sample_quality_min: float = 0.65,
+        min_fold_equity: float = 0.50,
+        min_equity: float = 0.42,
+        max_equity: float = 0.54,
+        max_threshold_gap: float = 0.07,
+        max_payout_pressure: float = 0.65,
+        min_stack_bb: float = 14.0,
+        max_active_players: int = 2,
+        avoid_low_spr: bool = True,
+        min_spr: float = 2.0,
+        allowed_streets: Iterable[int] | None = None,
+        flop_size: float = 0.33,
+        turn_size: float = 0.50,
+        max_stack_fraction: float = 0.18,
+        position_bonus: float = 0.06,
+        initiative_bonus: float = 0.05,
+        require_position_or_initiative: bool = True,
+        min_ev_edge_pot_fraction: float = 0.03,
+        mode: str = "force_raise",
+        threshold_discount: float = 0.035,
+        max_threshold_discount: float = 0.055,
+    ):
+        self.priority = int(priority)
+        self.enabled = bool(enabled)
+        self.sample_quality_min = max(0.0, min(1.0, float(sample_quality_min)))
+        self.min_fold_equity = max(0.0, min(1.0, float(min_fold_equity)))
+        self.min_equity = max(0.0, min(1.0, float(min_equity)))
+        self.max_equity = max(self.min_equity, min(1.0, float(max_equity)))
+        self.max_threshold_gap = max(0.0, min(1.0, float(max_threshold_gap)))
+        self.max_payout_pressure = max(0.0, min(1.0, float(max_payout_pressure)))
+        self.min_stack_bb = max(0.0, float(min_stack_bb))
+        self.max_active_players = max(2, int(max_active_players))
+        self.avoid_low_spr = bool(avoid_low_spr)
+        self.min_spr = max(0.0, float(min_spr))
+        self.allowed_streets = set(allowed_streets or (3, 4))
+        self.flop_size = max(0.05, float(flop_size))
+        self.turn_size = max(0.05, float(turn_size))
+        self.max_stack_fraction = max(0.0, min(1.0, float(max_stack_fraction)))
+        self.position_bonus = max(0.0, float(position_bonus))
+        self.initiative_bonus = max(0.0, float(initiative_bonus))
+        self.require_position_or_initiative = bool(require_position_or_initiative)
+        self.min_ev_edge_pot_fraction = max(0.0, float(min_ev_edge_pot_fraction))
+        self.mode = str(mode)
+        if self.mode not in {"force_raise", "threshold"}:
+            raise ValueError("bluff_pressure mode must be 'force_raise' or 'threshold'")
+        self.threshold_discount = max(0.0, min(0.20, float(threshold_discount)))
+        self.max_threshold_discount = max(self.threshold_discount, min(0.20, float(max_threshold_discount)))
+
+    def apply(self, context: DecisionContext, game_state: Mapping[str, Any]) -> DecisionContext:
+        if not self.enabled:
+            return context
+        structural_reject = self._structural_rejection_reason(context)
+        if structural_reject:
+            return self._with_reject_event(context, structural_reject)
+        if self.require_position_or_initiative and not self._has_position_or_initiative(context, game_state):
+            return self._with_reject_event(context, "no_position_or_initiative")
+        fold_equity = self._fold_equity(context, game_state)
+        if fold_equity < self.min_fold_equity:
+            return self._with_reject_event(context, "low_fold_equity", fold_equity=fold_equity)
+        amount = self._raise_amount(context)
+        if amount <= 0:
+            return self._with_reject_event(context, "no_raise_amount", fold_equity=fold_equity)
+        if not self._has_positive_bluff_ev(context, amount, fold_equity):
+            return self._with_reject_event(context, "negative_bluff_ev", amount=amount, fold_equity=fold_equity)
+        if self.mode == "threshold":
+            discount = min(self.max_threshold_discount, self.threshold_discount + max(0.0, fold_equity - self.min_fold_equity) * 0.05)
+            context = context.with_raise_threshold(context.raise_threshold - discount)
+            return context.with_tool_event(
+                {
+                    "tool": self.name,
+                    "decision": "threshold_discount",
+                    "amount": int(amount),
+                    "street": context.street,
+                    "position": context.position,
+                    "equity": context.equity,
+                    "raise_threshold": context.raise_threshold,
+                    "threshold_gap": context.raise_threshold - context.equity,
+                    "threshold_discount": discount,
+                    "fold_equity": fold_equity,
+                    "pot_size": context.pot_size,
+                    "stack_bb": context.stack_bb,
+                    "payout_pressure": context.payout_pressure,
+                    "active_players": context.active_players,
+                }
+            )
+        return context.with_forced_action("raise", amount).with_tool_event(
+            {
+                "tool": self.name,
+                "decision": "force_raise",
+                "amount": amount,
+                "street": context.street,
+                "position": context.position,
+                "equity": context.equity,
+                "raise_threshold": context.raise_threshold,
+                "threshold_gap": context.raise_threshold - context.equity,
+                "fold_equity": fold_equity,
+                "pot_size": context.pot_size,
+                "stack_bb": context.stack_bb,
+                "payout_pressure": context.payout_pressure,
+                "active_players": context.active_players,
+            }
+        )
+
+    def _structural_rejection_reason(self, context: DecisionContext) -> str:
+        if context.forced_action is not None:
+            return "already_forced"
+        if context.street not in self.allowed_streets:
+            return "street"
+        if context.call_amount != 0:
+            return "facing_bet"
+        if context.active_players > self.max_active_players:
+            return "multiway"
+        if context.stack_bb < self.min_stack_bb:
+            return "short_stack"
+        if context.payout_pressure > self.max_payout_pressure:
+            return "payout_pressure"
+        if context.pot_size <= 0 or context.max_raise_extra < max(1, context.min_raise):
+            return "cannot_raise"
+        if not (self.min_equity <= context.equity <= min(self.max_equity, context.raise_threshold - 0.01)):
+            return "equity_window"
+        if context.raise_threshold - context.equity > self.max_threshold_gap:
+            return "threshold_gap"
+        if self.avoid_low_spr and context.pot_size > 0:
+            spr = context.stack_size / float(context.pot_size)
+            if spr < self.min_spr:
+                return "low_spr"
+        return ""
+
+    def _with_reject_event(
+        self,
+        context: DecisionContext,
+        reason: str,
+        *,
+        amount: int = 0,
+        fold_equity: float | None = None,
+    ) -> DecisionContext:
+        event = {
+            "tool": self.name,
+            "decision": "reject",
+            "reason": reason,
+            "amount": int(amount),
+            "street": context.street,
+            "position": context.position,
+            "equity": context.equity,
+            "raise_threshold": context.raise_threshold,
+            "threshold_gap": context.raise_threshold - context.equity,
+            "pot_size": context.pot_size,
+            "stack_bb": context.stack_bb,
+            "payout_pressure": context.payout_pressure,
+            "active_players": context.active_players,
+        }
+        if fold_equity is not None:
+            event["fold_equity"] = fold_equity
+        return context.with_tool_event(event)
+
+    def _fold_equity(self, context: DecisionContext, game_state: Mapping[str, Any]) -> float:
+        stats = self._stats(game_state.get("opponent_stats")) or self._stats(game_state.get("table_stats"))
+        if not stats:
+            return 0.0
+        quality = stats["sample_quality"]
+        vpip = stats["vpip"]
+        pfr = stats["pfr"]
+        three_bet = stats["three_bet_rate"]
+
+        tightness = max(0.0, 0.30 - vpip) * 0.85
+        passivity = max(0.0, 0.18 - pfr) * 0.45
+        low_reraise = max(0.0, 0.10 - three_bet) * 0.35
+        score = 0.32 + tightness + passivity + low_reraise
+        if context.position in {"BTN", "CO"}:
+            score += self.position_bonus
+        if self._has_initiative(context, game_state):
+            score += self.initiative_bonus
+        return max(0.0, min(1.0, score * quality))
+
+    def _has_initiative(self, context: DecisionContext, game_state: Mapping[str, Any]) -> bool:
+        if "has_initiative" in game_state:
+            return bool(game_state.get("has_initiative"))
+        return context.spot_type in {"srp", "single_raised"} and context.position in {"BTN", "CO", "HJ"}
+
+    def _has_position_or_initiative(self, context: DecisionContext, game_state: Mapping[str, Any]) -> bool:
+        return context.position in {"BTN", "CO"} or self._has_initiative(context, game_state)
+
+    def _has_positive_bluff_ev(self, context: DecisionContext, amount: int, fold_equity: float) -> bool:
+        pot = float(context.pot_size)
+        bet = float(amount)
+        if pot <= 0 or bet <= 0:
+            return False
+        called_ev = context.equity * (pot + bet) - (1.0 - context.equity) * bet
+        total_ev = fold_equity * pot + (1.0 - fold_equity) * called_ev
+        return total_ev >= pot * self.min_ev_edge_pot_fraction
+
+    def _raise_amount(self, context: DecisionContext) -> int:
+        fraction = self.flop_size if context.street == 3 else self.turn_size
+        target = int(max(context.big_blind, context.pot_size * fraction))
+        target = max(context.min_raise, target)
+        if self.max_stack_fraction > 0:
+            target = min(target, int(context.stack_size * self.max_stack_fraction))
+        return min(context.max_raise_extra, max(context.min_raise, target))
+
+    def _stats(self, raw_stats: Any) -> Dict[str, float] | None:
+        if not isinstance(raw_stats, dict):
+            return None
+        try:
+            quality = max(0.0, min(1.0, float(raw_stats.get("sample_quality", 0.0) or 0.0)))
+            if quality < self.sample_quality_min:
+                return None
+            return {
+                "sample_quality": quality,
+                "vpip": max(0.0, min(1.0, float(raw_stats.get("vpip", 0.25) or 0.0))),
+                "pfr": max(0.0, min(1.0, float(raw_stats.get("pfr", 0.16) or 0.0))),
+                "three_bet_rate": max(0.0, min(1.0, float(raw_stats.get("three_bet_rate", 0.08) or 0.0))),
+            }
+        except (TypeError, ValueError):
+            return None
+
+
 TOOL_REGISTRY = {
     "icm_pressure": ICMPressureTool,
     "ICMPressureTool": ICMPressureTool,
@@ -472,6 +706,8 @@ TOOL_REGISTRY = {
     "ButtonStealTool": ButtonStealTool,
     "endgame_conversion": EndgameConversionTool,
     "EndgameConversionTool": EndgameConversionTool,
+    "bluff_pressure": BluffPressureTool,
+    "BluffPressureTool": BluffPressureTool,
 }
 
 
@@ -540,6 +776,34 @@ def available_decision_tools() -> Dict[str, Dict[str, Any]]:
                 "top3_multiplier",
                 "heads_up_multiplier",
                 "protect_bubble",
+            ],
+        },
+        "bluff_pressure": {
+            "class": BluffPressureTool.__name__,
+            "params": [
+                "priority",
+                "enabled",
+                "sample_quality_min",
+                "min_fold_equity",
+                "min_equity",
+                "max_equity",
+                "max_threshold_gap",
+                "max_payout_pressure",
+                "min_stack_bb",
+                "max_active_players",
+                "avoid_low_spr",
+                "min_spr",
+                "allowed_streets",
+                "flop_size",
+                "turn_size",
+                "max_stack_fraction",
+                "position_bonus",
+                "initiative_bonus",
+                "require_position_or_initiative",
+                "min_ev_edge_pot_fraction",
+                "mode",
+                "threshold_discount",
+                "max_threshold_discount",
             ],
         },
     }

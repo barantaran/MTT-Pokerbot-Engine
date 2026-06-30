@@ -1,0 +1,140 @@
+{
+  "run_id": "phase112_all_registered_and_configured_20x4x240",
+  "mtt_count": 20,
+  "workers": 4,
+  "random_seed": 112001,
+  "lineup": {
+    "random": 10,
+    "call": 10,
+    "aggressive_no_equity": 10,
+    "aggressive_equity": 10,
+    "tight_equity": 10,
+    "noisy_equity": 10,
+    "range_policy": 10,
+    "ev_reaction": 10,
+    "ev_initiative": 10,
+    "ev_formula": 10,
+    "icm_tight": 10,
+    "tournament_equity": 10,
+    "tournament_equity_v2": 10,
+    "tournament_icm_equity": 10,
+    "configured_tournament_equity": 10,
+    "adaptive_tournament_icm_equity": 10,
+    "button_steal_tournament_icm_equity": 10
+  },
+  "lineup_variants": [
+    {
+      "type": "configured_tournament_equity",
+      "population": "configured_tournament_equity_range",
+      "count": 10,
+      "params": {
+        "use_preflop_spot_range": true
+      }
+    },
+    {
+      "type": "configured_tournament_equity",
+      "population": "configured_tournament_equity_baseline",
+      "count": 10,
+      "params": {
+        "use_preflop_spot_range": false
+      }
+    },
+    {
+      "type": "configured_tournament_equity",
+      "population": "configured_tournament_equity_legacy_range",
+      "count": 10,
+      "params": {
+        "use_preflop_spot_range": true,
+        "range_profile": "legacy"
+      }
+    },
+    {
+      "type": "configured_tournament_equity",
+      "population": "configured_tournament_equity_adaptive_range",
+      "count": 10,
+      "params": {
+        "use_preflop_spot_range": true,
+        "range_profile": "adaptive"
+      }
+    },
+    {
+      "type": "configured_tournament_equity",
+      "population": "configured_tournament_equity_player_range",
+      "count": 10,
+      "params": {
+        "use_preflop_spot_range": true,
+        "range_profile": "player"
+      }
+    },
+    {
+      "type": "configured_tournament_equity",
+      "population": "configured_tournament_equity_player_range_endgame",
+      "count": 10,
+      "params": {
+        "use_preflop_spot_range": true,
+        "range_profile": "player"
+      }
+    },
+    {
+      "type": "configured_tournament_equity",
+      "population": "configured_tournament_equity_player_range_dampened",
+      "count": 10,
+      "params": {
+        "use_preflop_spot_range": true,
+        "range_profile": "player",
+        "range_influence": {
+          "default": 1.0,
+          "srp": 0.45,
+          "single_raised": 0.45,
+          "three_bet": 0.30,
+          "3bet": 0.30,
+          "four_bet": 0.25,
+          "4bet": 0.25,
+          "five_bet_plus": 0.25,
+          "five_bet": 0.25,
+          "5bet": 0.25,
+          "all_in_pressure": 0.35,
+          "allin": 0.35
+        }
+      }
+    }
+  ],
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "fixed_bots_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": null,
+    "payouts": {
+      "1": 0.248949579832,
+      "2": 0.157563025210,
+      "3": 0.108193277311,
+      "4": 0.077731092437,
+      "5": 0.057773109244,
+      "6": 0.045168067227,
+      "7": 0.035714285714,
+      "8": 0.029411764706,
+      "9": 0.024159663866,
+      "10": 0.019957983193,
+      "11": 0.019957983193,
+      "12": 0.016806722689,
+      "13": 0.016806722689,
+      "14": 0.014705882353,
+      "15": 0.014705882353,
+      "16": 0.012605042017,
+      "17": 0.012605042017,
+      "18": 0.011554621849,
+      "19": 0.011554621849,
+      "20": 0.010504201681,
+      "21": 0.010504201681,
+      "22": 0.009453781513,
+      "23": 0.009453781513,
+      "24": 0.008403361345,
+      "25": 0.008403361345,
+      "26": 0.007352941176
+    }
+  }
+}

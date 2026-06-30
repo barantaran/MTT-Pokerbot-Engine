@@ -1,28 +1,28 @@
 {
-  "run_id": "phase104_stack_player_range_vs_no_range_10x8x100",
-  "mtt_count": 80,
+  "run_id": "phase109_all_available_bots_10x4x200",
+  "mtt_count": 40,
   "workers": 4,
-  "random_seed": 104010,
-  "lineup": {},
-  "lineup_variants": [
-    {
-      "type": "configured_tournament_equity",
-      "population": "configured_tournament_equity_player_range",
-      "count": 50,
-      "params": {
-        "use_preflop_spot_range": true,
-        "range_profile": "player"
-      }
-    },
-    {
-      "type": "configured_tournament_equity",
-      "population": "configured_tournament_equity_no_range",
-      "count": 50,
-      "params": {
-        "use_preflop_spot_range": false
-      }
-    }
-  ],
+  "random_seed": 109001,
+  "lineup": {
+    "random": 12,
+    "call": 12,
+    "aggressive_no_equity": 12,
+    "aggressive_equity": 12,
+    "tight_equity": 12,
+    "noisy_equity": 12,
+    "range_policy": 12,
+    "ev_reaction": 12,
+    "ev_initiative": 12,
+    "ev_formula": 12,
+    "icm_tight": 12,
+    "tournament_equity": 12,
+    "tournament_equity_v2": 12,
+    "tournament_icm_equity": 11,
+    "configured_tournament_equity": 11,
+    "adaptive_tournament_icm_equity": 11,
+    "button_steal_tournament_icm_equity": 11
+  },
+  "lineup_variants": [],
   "engine": {
     "equity_source": "pokerstove",
     "equity_fallback_source": "constant",

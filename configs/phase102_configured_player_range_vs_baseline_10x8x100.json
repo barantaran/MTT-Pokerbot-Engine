@@ -1,8 +1,8 @@
 {
-  "run_id": "phase102_configured_player_range_vs_no_range_8x100",
-  "mtt_count": 8,
+  "run_id": "phase102_configured_player_range_vs_baseline_10x8x100",
+  "mtt_count": 80,
   "workers": 4,
-  "random_seed": 102001,
+  "random_seed": 102010,
   "lineup": {},
   "lineup_variants": [
     {
@@ -16,7 +16,7 @@
     },
     {
       "type": "configured_tournament_equity",
-      "population": "configured_tournament_equity_no_range",
+      "population": "configured_tournament_equity_baseline",
       "count": 50,
       "params": {
         "use_preflop_spot_range": false

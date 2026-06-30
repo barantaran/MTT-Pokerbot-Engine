@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from engine.bot_factory import BOT_REGISTRY, build_configurable_bots
+from engine.bot_factory import BOT_REGISTRY, build_configurable_bots, population_for_spec
 from engine.evolutionary_reduced_mtt import (
     _engine_overrides,
     _seed_everything,
@@ -91,9 +91,13 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     started = time.perf_counter()
     write_events = bool(config.get("write_events", False))
     configured_populations = set(str(key) for key in lineup)
+    use_ranges = bool(engine_config.get("fixed_bots_use_preflop_spot_range", False))
     for spec in lineup_variants:
         spec_type = str(spec.get("type") or spec.get("bot") or spec.get("bot_type") or spec.get("class") or "")
-        configured_populations.add(str(spec.get("population") or BOT_REGISTRY[spec_type].population))
+        if spec.get("include_tool_set_in_name") or spec.get("name_tool_set"):
+            configured_populations.add(population_for_spec(spec, use_ranges=use_ranges))
+        else:
+            configured_populations.add(str(spec.get("population") or BOT_REGISTRY[spec_type].population))
 
     def name_to_population_from_results() -> Dict[str, str]:
         prefixes = tuple(sorted((population + "_" for population in configured_populations), key=len, reverse=True))
