@@ -108,6 +108,8 @@ def normalize_range_pct(
     paid_places=None,
     itm_distance=None,
     range_influence=1.0,
+    player_range_sampling=True,
+    player_range_sample_config=None,
 ):
     if opponent_range_pct is not None:
         value = float(opponent_range_pct)
@@ -140,6 +142,12 @@ def normalize_range_pct(
             spot_type,
             opponent_stats,
             opponent_position=opponent_position,
+            use_sample_quality=player_range_sampling,
+            sample_config=player_range_sample_config,
+            players_left=players_left,
+            starting_field=starting_field,
+            paid_places=paid_places,
+            itm_distance=itm_distance,
         )
         range_pct = _adjust_range_pct_for_opponent_stack_pressure(
             range_pct,
@@ -318,13 +326,27 @@ def _adjust_range_pct_for_opponent_stack_pressure(
     return min(1.0, max(0.01, range_pct * multiplier))
 
 
-def _adjust_range_pct_for_player_profile(range_pct, spot_type, table_stats, *, opponent_position=None):
+def _adjust_range_pct_for_player_profile(
+    range_pct,
+    spot_type,
+    table_stats,
+    *,
+    opponent_position=None,
+    use_sample_quality=True,
+    sample_config=None,
+    players_left=None,
+    starting_field=None,
+    paid_places=None,
+    itm_distance=None,
+):
     if not isinstance(table_stats, dict):
         return range_pct
 
     quality = _sample_quality(table_stats)
     if quality <= 0.0:
         return range_pct
+    if not use_sample_quality:
+        quality = 1.0
 
     ranges = player_range(
         table_stats.get("vpip", 0.25),
@@ -333,7 +355,82 @@ def _adjust_range_pct_for_player_profile(range_pct, spot_type, table_stats, *, o
         position=opponent_position,
     )
     player_pct = ranges.get(spot_type, range_pct)
+    quality = _player_range_profile_quality(
+        quality,
+        range_pct,
+        player_pct,
+        spot_type,
+        table_stats,
+        sample_config,
+        players_left=players_left,
+        starting_field=starting_field,
+        paid_places=paid_places,
+        itm_distance=itm_distance,
+    )
     return _clamp((range_pct * (1.0 - quality)) + (player_pct * quality), 0.01, 1.0)
+
+
+def _player_range_profile_quality(
+    default_quality,
+    base_pct,
+    player_pct,
+    spot_type,
+    stats,
+    sample_config,
+    *,
+    players_left=None,
+    starting_field=None,
+    paid_places=None,
+    itm_distance=None,
+):
+    if not isinstance(sample_config, dict):
+        return default_quality
+
+    hands = _optional_float(stats.get("player_hands_observed"))
+    if hands is None:
+        hands = _optional_float(stats.get("hands_observed"))
+    if hands is None:
+        return default_quality
+
+    pressure_spot = spot_type in {
+        "three_bet",
+        "3bet",
+        "four_bet",
+        "4bet",
+        "five_bet_plus",
+        "five_bet",
+        "5bet",
+        "all_in_pressure",
+        "allin",
+    }
+    is_widening = player_pct > base_pct
+    if pressure_spot:
+        start = _safe_float(sample_config.get("pressure_start_hands"), 40.0)
+        full = _safe_float(sample_config.get("pressure_full_hands"), 120.0)
+    elif is_widening:
+        start = _safe_float(sample_config.get("loose_start_hands"), 25.0)
+        full = _safe_float(sample_config.get("loose_full_hands"), 75.0)
+    else:
+        start = _safe_float(sample_config.get("tight_start_hands"), 10.0)
+        full = _safe_float(sample_config.get("tight_full_hands"), 35.0)
+
+    if full <= start:
+        hand_quality = 1.0 if hands >= full else 0.0
+    else:
+        hand_quality = _clamp((hands - start) / (full - start), 0.0, 1.0)
+    quality = default_quality * hand_quality
+
+    if is_widening:
+        quality *= _safe_float(sample_config.get("loose_multiplier"), 0.80)
+        stage = _mtt_stage_pressure(players_left, starting_field, paid_places, itm_distance)
+        if stage >= 0.80:
+            quality *= _safe_float(sample_config.get("bubble_loose_multiplier"), 0.45)
+        elif stage >= 0.50:
+            quality *= _safe_float(sample_config.get("late_loose_multiplier"), 0.65)
+    else:
+        quality *= _safe_float(sample_config.get("tight_multiplier"), 1.10)
+
+    return _clamp(quality, 0.0, 1.0)
 
 
 def _mtt_stage_pressure(players_left, starting_field, paid_places, itm_distance):
@@ -574,6 +671,8 @@ def estimate_equity(
     paid_places=None,
     itm_distance=None,
     range_influence=1.0,
+    player_range_sampling=True,
+    player_range_sample_config=None,
 ):
     """
     Estimate hero equity against opponent ranges in Texas Hold'em.
@@ -600,6 +699,8 @@ def estimate_equity(
         paid_places=paid_places,
         itm_distance=itm_distance,
         range_influence=range_influence,
+        player_range_sampling=player_range_sampling,
+        player_range_sample_config=player_range_sample_config,
     )
     return _estimate_equity_cached(hero_cards, board, int(active_players), iterations, range_pct)
 

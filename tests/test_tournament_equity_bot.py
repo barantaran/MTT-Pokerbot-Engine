@@ -79,6 +79,26 @@ class TournamentEquityBotTests(unittest.TestCase):
         self.assertEqual(equity.call_args.kwargs["range_profile"], "player")
         self.assertEqual(equity.call_args.kwargs["range_influence"], range_influence)
 
+    def test_player_range_sampling_switch_is_passed_to_equity_estimator(self):
+        bot = ConfiguredTournamentEquityBot(range_profile="player", player_range_sampling=False)
+
+        with patch("players.tournament_equity_bot.estimate_equity", return_value=0.50) as equity:
+            bot.get_action(state(call_amount=40, preflop_spot_type="three_bet"))
+
+        self.assertFalse(equity.call_args.kwargs["player_range_sampling"])
+
+    def test_player_range_sample_config_is_passed_to_equity_estimator(self):
+        sample_config = {"tight_start_hands": 8, "pressure_full_hands": 120}
+        bot = ConfiguredTournamentEquityBot(
+            range_profile="player",
+            player_range_sample_config=sample_config,
+        )
+
+        with patch("players.tournament_equity_bot.estimate_equity", return_value=0.50) as equity:
+            bot.get_action(state(call_amount=40, preflop_spot_type="three_bet"))
+
+        self.assertEqual(equity.call_args.kwargs["player_range_sample_config"], sample_config)
+
     def test_folds_bad_priced_call(self):
         bot = TournamentEquityBot()
 
@@ -525,6 +545,77 @@ class TournamentEquityBotTests(unittest.TestCase):
 
         self.assertEqual(action, ("call", 0))
 
+    def test_cbet_pressure_widens_close_flop_continuation_bet(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "cbet_pressure"}])
+
+        game_state = state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.57,
+            pot_size=300,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.24,
+                "pfr": 0.14,
+                "three_bet_rate": 0.06,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("raise", 180))
+        self.assertEqual(game_state["_bot_tool_event"]["tool"], "cbet_pressure")
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "threshold_discount")
+        self.assertAlmostEqual(game_state["_bot_tool_event"]["fold_equity"], 0.425)
+        self.assertAlmostEqual(game_state["_bot_tool_event"]["threshold_discount"], 0.0368)
+
+    def test_cbet_pressure_requires_flop_initiative(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "cbet_pressure"}])
+
+        game_state = state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.57,
+            pot_size=300,
+            position="SB",
+            preflop_spot_type="limped",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.24,
+                "pfr": 0.14,
+                "three_bet_rate": 0.06,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("call", 0))
+        self.assertEqual(game_state["_bot_tool_event"]["tool"], "cbet_pressure")
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "reject")
+        self.assertEqual(game_state["_bot_tool_event"]["reason"], "no_initiative")
+
+    def test_cbet_pressure_does_not_bet_low_equity(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{"type": "cbet_pressure"}])
+
+        game_state = state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.35,
+            pot_size=300,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.24,
+                "pfr": 0.14,
+                "three_bet_rate": 0.06,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("call", 0))
+        self.assertEqual(game_state["_bot_tool_event"]["reason"], "low_equity")
+
     def test_bluff_pressure_tool_bets_checked_to_flop_against_tight_table(self):
         bot = ConfiguredTournamentEquityBot(tools=[{
             "type": "bluff_pressure",
@@ -583,6 +674,170 @@ class TournamentEquityBotTests(unittest.TestCase):
         self.assertEqual(game_state["_bot_tool_event"]["decision"], "threshold_discount")
         self.assertAlmostEqual(game_state["_bot_tool_event"]["threshold_discount"], 0.04525)
         self.assertNotIn("forced_action", game_state["_bot_tool_event"])
+
+    def test_bluff_pressure_threshold_mode_can_widen_river_raise(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "mode": "threshold",
+            "allowed_streets": [5],
+            "sample_quality_min": 0.55,
+            "min_fold_equity": 0.48,
+            "min_equity": 0.50,
+            "max_equity": 0.67,
+            "max_threshold_gap": 0.14,
+            "threshold_discount": 0.06,
+            "max_threshold_discount": 0.09,
+        }])
+
+        game_state = state(
+            board_cards=[10, 11, 12, 13, 14],
+            hero_equity=0.62,
+            pot_size=300,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("raise", 180))
+        self.assertEqual(game_state["_bot_tool_event"]["tool"], "bluff_pressure")
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "threshold_discount")
+        self.assertEqual(game_state["_bot_tool_event"]["street"], 5)
+
+    def test_bluff_pressure_river_size_can_interpolate_between_pot_fractions(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "mode": "force_raise",
+            "allowed_streets": [5],
+            "sample_quality_min": 0.35,
+            "min_fold_equity": 0.38,
+            "min_equity": 0.25,
+            "max_equity": 0.78,
+            "max_threshold_gap": 0.45,
+            "max_payout_pressure": 0.90,
+            "min_stack_bb": 6.0,
+            "max_active_players": 3,
+            "min_spr": 1.35,
+            "river_size_min": 0.75,
+            "river_size_max": 1.0,
+            "max_stack_fraction": 0.75,
+            "require_position_or_initiative": False,
+            "min_ev_edge_pot_fraction": 0.0,
+        }])
+
+        game_state = state(
+            board_cards=[10, 11, 12, 13, 14],
+            hero_equity=0.455,
+            pot_size=1000,
+            stack_size=10000,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("raise", 875))
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "force_raise")
+        self.assertEqual(game_state["_bot_tool_event"]["street"], 5)
+
+    def test_bluff_pressure_river_size_respects_stack_cap(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "mode": "force_raise",
+            "allowed_streets": [5],
+            "sample_quality_min": 0.35,
+            "min_fold_equity": 0.38,
+            "min_equity": 0.25,
+            "max_equity": 0.78,
+            "max_threshold_gap": 0.45,
+            "max_payout_pressure": 0.90,
+            "min_stack_bb": 6.0,
+            "max_active_players": 3,
+            "avoid_low_spr": False,
+            "river_size_min": 0.75,
+            "river_size_max": 1.0,
+            "max_stack_fraction": 0.75,
+            "require_position_or_initiative": False,
+            "min_ev_edge_pot_fraction": 0.0,
+        }])
+
+        game_state = state(
+            board_cards=[10, 11, 12, 13, 14],
+            hero_equity=0.30,
+            pot_size=1000,
+            stack_size=1000,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("raise", 750))
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "force_raise")
+
+    def test_bluff_pressure_requires_fold_equity_for_risk_after_equity_credit(self):
+        bot = ConfiguredTournamentEquityBot(tools=[{
+            "type": "bluff_pressure",
+            "mode": "force_raise",
+            "allowed_streets": [5],
+            "sample_quality_min": 0.35,
+            "min_fold_equity": 0.38,
+            "min_equity": 0.25,
+            "max_equity": 0.78,
+            "max_threshold_gap": 0.45,
+            "max_payout_pressure": 0.90,
+            "min_stack_bb": 6.0,
+            "max_active_players": 2,
+            "avoid_low_spr": False,
+            "river_size_min": 1.0,
+            "river_size_max": 1.0,
+            "max_stack_fraction": 1.0,
+            "required_fold_equity_safety_margin": 0.12,
+            "equity_fold_equity_credit": 0.08,
+            "max_equity_fold_equity_credit": 0.06,
+            "require_position_or_initiative": False,
+            "min_ev_edge_pot_fraction": 0.0,
+        }])
+
+        game_state = state(
+            board_cards=[10, 11, 12, 13, 14],
+            hero_equity=0.42,
+            pot_size=1000,
+            stack_size=10000,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.25,
+                "pfr": 0.16,
+                "three_bet_rate": 0.08,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("call", 0))
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "reject")
+        self.assertEqual(game_state["_bot_tool_event"]["reason"], "required_fold_equity")
+        self.assertGreater(game_state["_bot_tool_event"]["required_fold_equity"], game_state["_bot_tool_event"]["fold_equity"])
 
     def test_bluff_pressure_tool_does_not_bluff_multiway(self):
         bot = ConfiguredTournamentEquityBot(tools=[{
@@ -679,6 +934,79 @@ class TournamentEquityBotTests(unittest.TestCase):
         ))
 
         self.assertEqual(action, ("call", 0))
+
+    def test_bluff_pressure_allows_high_payout_pressure_with_stack_leverage(self):
+        bot = ConfiguredTournamentEquityBot(tools=[
+            {"type": "icm_pressure"},
+            {
+                "type": "bluff_pressure",
+                "max_threshold_gap": 0.12,
+                "max_equity": 0.58,
+                "max_payout_pressure": 0.65,
+                "leverage_max_payout_pressure": 0.80,
+                "leverage_cover_fraction_min": 0.50,
+            },
+        ])
+
+        game_state = state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.57,
+            pot_size=300,
+            stack_size=2000,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            next_prize_gain_pct=0.175,
+            hero_table_index=0,
+            table_stacks=[2000, 1200, 1700, 2600],
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("raise", 99))
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "force_raise")
+
+    def test_bluff_pressure_rejects_high_payout_pressure_without_stack_leverage(self):
+        bot = ConfiguredTournamentEquityBot(tools=[
+            {"type": "icm_pressure"},
+            {
+                "type": "bluff_pressure",
+                "max_threshold_gap": 0.12,
+                "max_equity": 0.58,
+                "max_payout_pressure": 0.65,
+                "leverage_max_payout_pressure": 0.80,
+                "leverage_cover_fraction_min": 0.50,
+            },
+        ])
+
+        game_state = state(
+            board_cards=[10, 11, 12],
+            hero_equity=0.57,
+            pot_size=300,
+            stack_size=1200,
+            position="BTN",
+            preflop_spot_type="srp",
+            active_players=2,
+            next_prize_gain_pct=0.175,
+            hero_table_index=0,
+            table_stacks=[1200, 1600, 1800, 2200],
+            table_stats={
+                "sample_quality": 1.0,
+                "vpip": 0.18,
+                "pfr": 0.08,
+                "three_bet_rate": 0.02,
+            },
+        )
+        action = bot.get_action(game_state)
+
+        self.assertEqual(action, ("call", 0))
+        self.assertEqual(game_state["_bot_tool_event"]["decision"], "reject")
+        self.assertEqual(game_state["_bot_tool_event"]["reason"], "payout_pressure")
 
     def test_button_steal_icm_widens_unopened_button_on_tight_table(self):
         bot = ButtonStealTournamentICMEquityBot(use_icm=False)

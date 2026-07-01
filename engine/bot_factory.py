@@ -89,6 +89,7 @@ _TOOL_NAME_ALIASES = {
     "table_adaptation": "table",
     "button_steal": "steal",
     "endgame_conversion": "endgame",
+    "cbet_pressure": "cbet",
     "bluff_pressure": "bluff",
 }
 
@@ -96,13 +97,17 @@ _POPULATION_NAME_ALIASES = {
     "configured_tournament_equity": "conf_mtt_eq",
     "configured_tournament_equity_baseline": "conf_mtt_eq",
     "configured_tournament_equity_range": "conf_mtt_eq_range",
-    "configured_tournament_equity_legacy_range": "conf_mtt_eq_legacy_range",
-    "configured_tournament_equity_adaptive_range": "conf_mtt_eq_adaptive_range",
-    "configured_tournament_equity_player_range": "conf_mtt_eq_player_range",
-    "configured_tournament_equity_player_range_dampened": "conf_mtt_eq_player_range_damped",
-    "configured_tournament_equity_player_range_dampened_postflop_pot": "conf_mtt_eq_player_range_damped_postflop_pot",
-    "configured_tournament_equity_player_range_dampened_postflop_pot_capped": "conf_mtt_eq_player_range_damped_postflop_pot_capped",
-    "configured_tournament_equity_player_range_dampened_postflop_pot_capped_bluff": "conf_mtt_eq_player_range_damped_postflop_pot_capped",
+    "configured_tournament_equity_legacy_range": "conf_mtt_eq_legacyrange",
+    "configured_tournament_equity_adaptive_range": "conf_mtt_eq_adaptiverange",
+    "configured_tournament_equity_player_range": "conf_mtt_eq_playerrange",
+    "configured_tournament_equity_player_range_samplecurve": "conf_mtt_eq_playerrange_samplecurve",
+    "configured_tournament_equity_player_range_nosampling": "conf_mtt_eq_playerrange_nosampling",
+    "configured_tournament_equity_player_range_dampened": "conf_mtt_eq_playerrange_damped",
+    "configured_tournament_equity_player_range_dampened_postflop_pot": "conf_mtt_eq_playerrange_damped_postfloppot",
+    "configured_tournament_equity_player_range_dampened_postflop_pot_capped": "conf_mtt_eq_playerrange_damped_postfloppotcapped",
+    "configured_tournament_equity_player_range_dampened_postflop_pot_capped_bluff": "conf_mtt_eq_playerrange_damped_postfloppotcapped",
+    "configured_tournament_equity_player_range_dampened_postflop_pot_capped_bluffstrong": "conf_mtt_eq_playerrange_damped_postfloppotcapped_bluffstrong",
+    "configured_tournament_equity_player_range_dampened_postflop_pot_capped_bluffleverage": "conf_mtt_eq_playerrange_damped_postfloppotcapped_bluffleverage",
 }
 
 

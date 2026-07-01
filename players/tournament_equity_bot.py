@@ -38,6 +38,8 @@ class TournamentEquityBot(Bot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        player_range_sampling: bool = True,
+        player_range_sample_config=None,
         raise_sizing: str = "legacy",
         pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
         pot_bucket_edge_step: float = 0.05,
@@ -48,6 +50,8 @@ class TournamentEquityBot(Bot):
         self.use_preflop_spot_range = bool(use_preflop_spot_range)
         self.range_profile = str(range_profile or "legacy")
         self.range_influence = range_influence
+        self.player_range_sampling = bool(player_range_sampling)
+        self.player_range_sample_config = player_range_sample_config
         self.raise_sizing = str(raise_sizing or "legacy")
         self.pot_size_buckets = tuple(float(bucket) for bucket in pot_size_buckets)
         self.pot_bucket_edge_step = max(0.01, float(pot_bucket_edge_step))
@@ -94,6 +98,8 @@ class TournamentEquityBot(Bot):
                 paid_places=game_state.get("paid_places"),
                 itm_distance=game_state.get("itm_distance"),
                 range_influence=self.range_influence,
+                player_range_sampling=self.player_range_sampling,
+                player_range_sample_config=self.player_range_sample_config,
             )
 
         payout_pressure = self._payout_pressure(game_state)
@@ -394,6 +400,8 @@ class TournamentEquityBotV2(TournamentEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        player_range_sampling: bool = True,
+        player_range_sample_config=None,
         raise_sizing: str = "legacy",
         pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
         pot_bucket_edge_step: float = 0.05,
@@ -405,6 +413,8 @@ class TournamentEquityBotV2(TournamentEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            player_range_sampling=player_range_sampling,
+            player_range_sample_config=player_range_sample_config,
             raise_sizing=raise_sizing,
             pot_size_buckets=pot_size_buckets,
             pot_bucket_edge_step=pot_bucket_edge_step,
@@ -444,6 +454,8 @@ class TournamentICMEquityBot(TournamentEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        player_range_sampling: bool = True,
+        player_range_sample_config=None,
         raise_sizing: str = "legacy",
         pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
         pot_bucket_edge_step: float = 0.05,
@@ -456,6 +468,8 @@ class TournamentICMEquityBot(TournamentEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            player_range_sampling=player_range_sampling,
+            player_range_sample_config=player_range_sample_config,
             raise_sizing=raise_sizing,
             pot_size_buckets=pot_size_buckets,
             pot_bucket_edge_step=pot_bucket_edge_step,
@@ -554,6 +568,8 @@ class AdaptiveTournamentICMEquityBot(TournamentICMEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        player_range_sampling: bool = True,
+        player_range_sample_config=None,
         raise_sizing: str = "legacy",
         pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
         pot_bucket_edge_step: float = 0.05,
@@ -566,6 +582,8 @@ class AdaptiveTournamentICMEquityBot(TournamentICMEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            player_range_sampling=player_range_sampling,
+            player_range_sample_config=player_range_sample_config,
             raise_sizing=raise_sizing,
             pot_size_buckets=pot_size_buckets,
             pot_bucket_edge_step=pot_bucket_edge_step,
@@ -678,6 +696,8 @@ class ConfiguredTournamentEquityBot(TournamentEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        player_range_sampling: bool = True,
+        player_range_sample_config=None,
         raise_sizing: str = "legacy",
         pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
         pot_bucket_edge_step: float = 0.05,
@@ -688,6 +708,8 @@ class ConfiguredTournamentEquityBot(TournamentEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            player_range_sampling=player_range_sampling,
+            player_range_sample_config=player_range_sample_config,
             raise_sizing=raise_sizing,
             pot_size_buckets=pot_size_buckets,
             pot_bucket_edge_step=pot_bucket_edge_step,
@@ -731,6 +753,8 @@ class ButtonStealTournamentICMEquityBot(TournamentICMEquityBot):
         use_preflop_spot_range: bool = True,
         range_profile: str = "legacy",
         range_influence=1.0,
+        player_range_sampling: bool = True,
+        player_range_sample_config=None,
         raise_sizing: str = "legacy",
         pot_size_buckets=(0.33, 0.50, 0.75, 1.00, 1.25),
         pot_bucket_edge_step: float = 0.05,
@@ -743,6 +767,8 @@ class ButtonStealTournamentICMEquityBot(TournamentICMEquityBot):
             use_preflop_spot_range=use_preflop_spot_range,
             range_profile=range_profile,
             range_influence=range_influence,
+            player_range_sampling=player_range_sampling,
+            player_range_sample_config=player_range_sample_config,
             raise_sizing=raise_sizing,
             pot_size_buckets=pot_size_buckets,
             pot_bucket_edge_step=pot_bucket_edge_step,

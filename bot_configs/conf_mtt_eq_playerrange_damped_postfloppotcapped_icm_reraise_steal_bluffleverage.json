@@ -1,0 +1,70 @@
+{
+  "name": "conf_mtt_eq_playerrange_damped_postfloppotcapped_icm_reraise_steal_bluffleverage",
+  "type": "configured_tournament_equity",
+  "population": "configured_tournament_equity_player_range_dampened_postflop_pot_capped_bluffleverage",
+  "include_tool_set_in_name": true,
+  "params": {
+    "use_preflop_spot_range": true,
+    "range_profile": "player",
+    "range_influence": {
+      "default": 1.0,
+      "srp": 0.45,
+      "single_raised": 0.45,
+      "three_bet": 0.3,
+      "3bet": 0.3,
+      "four_bet": 0.25,
+      "4bet": 0.25,
+      "five_bet_plus": 0.25,
+      "five_bet": 0.25,
+      "5bet": 0.25,
+      "all_in_pressure": 0.35,
+      "allin": 0.35
+    },
+    "raise_sizing": "postflop_pot_buckets",
+    "pot_size_buckets": [0.33, 0.5, 0.75, 1.0, 1.25],
+    "pot_bucket_edge_step": 0.05,
+    "pot_bucket_all_in_spr": 1.25,
+    "tools": [
+      {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": true},
+      {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
+      {
+        "type": "button_steal",
+        "priority": 40,
+        "sample_quality_min": 0.5,
+        "max_vpip": 0.3,
+        "max_pfr": 0.16,
+        "max_three_bet_rate": 0.08,
+        "base_discount": 0.018,
+        "tightness_multiplier": 0.12,
+        "max_discount": 0.04,
+        "requires_table_sample": true
+      },
+      {
+        "type": "bluff_pressure",
+        "priority": 46,
+        "mode": "threshold",
+        "sample_quality_min": 0.55,
+        "min_fold_equity": 0.45,
+        "min_equity": 0.42,
+        "max_equity": 0.58,
+        "max_threshold_gap": 0.11,
+        "max_payout_pressure": 0.65,
+        "leverage_max_payout_pressure": 0.8,
+        "leverage_cover_fraction_min": 0.5,
+        "leverage_stack_ratio_min": 1.1,
+        "min_stack_bb": 14.0,
+        "max_active_players": 2,
+        "avoid_low_spr": true,
+        "min_spr": 2.0,
+        "allowed_streets": [3, 4],
+        "flop_size": 0.33,
+        "turn_size": 0.5,
+        "max_stack_fraction": 0.18,
+        "threshold_discount": 0.035,
+        "max_threshold_discount": 0.055,
+        "require_position_or_initiative": true,
+        "min_ev_edge_pot_fraction": 0.03
+      }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "run_id": "phase153_samplecurve_bluffrisk_relaxed_vs_champion_50x100",
+  "mtt_count": 50,
+  "workers": 4,
+  "mtt_seed_start": 153001,
+  "progress_interval_seconds": 30,
+  "bot_config_dir": "bot_configs",
+  "named_lineup": [
+    {"bot": "conf_mtt_eq_playerrange_samplecurve_icm_reraise_steal", "count": 50},
+    {"bot": "conf_mtt_eq_playerrange_samplecurve_icm_reraise_steal_bluff", "count": 50}
+  ],
+  "engine": {
+    "equity_source": "pokerstove",
+    "equity_fallback_source": "constant",
+    "fixed_bots_use_preflop_spot_range": false,
+    "bot_decision_timeout_ms": 1500,
+    "starting_stack": 5000,
+    "max_players_per_table": 9,
+    "hands_per_level": 10,
+    "max_hands_per_tournament": null,
+    "payouts": {
+      "1": 0.248949579832,
+      "2": 0.157563025210,
+      "3": 0.108193277311,
+      "4": 0.077731092437,
+      "5": 0.057773109244,
+      "6": 0.045168067227,
+      "7": 0.035714285714,
+      "8": 0.029411764706,
+      "9": 0.024159663866,
+      "10": 0.019957983193,
+      "11": 0.019957983193,
+      "12": 0.016806722689,
+      "13": 0.016806722689,
+      "14": 0.014705882353,
+      "15": 0.014705882353,
+      "16": 0.012605042017,
+      "17": 0.012605042017,
+      "18": 0.011554621849,
+      "19": 0.011554621849,
+      "20": 0.010504201681,
+      "21": 0.010504201681,
+      "22": 0.009453781513,
+      "23": 0.009453781513,
+      "24": 0.008403361345,
+      "25": 0.008403361345,
+      "26": 0.007352941176
+    }
+  },
+  "metadata": {
+    "purpose": "50-MTT duel between samplecurve champion and risk-gated river bluff_pressure with relaxed fire window",
+    "baseline": "conf_mtt_eq_playerrange_samplecurve_icm_reraise_steal",
+    "challenger": "conf_mtt_eq_playerrange_samplecurve_icm_reraise_steal_bluff",
+    "tool_delta": ["bluff_pressure", "risk_based_required_fold_equity", "river_only", "max_equity=0.62", "max_threshold_gap=0.28", "required_fold_equity_safety_margin=0.08"],
+    "entries_per_population": 50,
+    "entries_per_tournament": 100
+  }
+}

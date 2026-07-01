@@ -151,6 +151,114 @@ class PokerstoveEquityRangeTests(unittest.TestCase):
         self.assertLess(tight, base)
         self.assertGreater(loose, base)
 
+    def test_player_profile_sampling_can_be_disabled(self):
+        loose_opponent = {"vpip": 0.55, "pfr": 0.36, "three_bet_rate": 0.18, "sample_quality": 0.20}
+
+        sampled = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=loose_opponent,
+            player_range_sampling=True,
+        )
+        unsampled = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=loose_opponent,
+            player_range_sampling=False,
+        )
+        full_sample = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats={**loose_opponent, "sample_quality": 1.0},
+            player_range_sampling=True,
+        )
+
+        self.assertGreater(unsampled, sampled)
+        self.assertEqual(unsampled, full_sample)
+
+    def test_player_profile_sample_config_delays_pressure_reads(self):
+        config = {"pressure_start_hands": 40, "pressure_full_hands": 120}
+        loose_pressure = {
+            "vpip": 0.55,
+            "pfr": 0.36,
+            "three_bet_rate": 0.18,
+            "sample_quality": 1.0,
+            "player_hands_observed": 20,
+        }
+
+        base = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats={"sample_quality": 0.0},
+        )
+        guarded = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=loose_pressure,
+            player_range_sample_config=config,
+        )
+        unguarded = normalize_range_pct(
+            preflop_spot_type="three_bet",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats={**loose_pressure, "player_hands_observed": 120},
+            player_range_sample_config=config,
+        )
+
+        self.assertEqual(guarded, base)
+        self.assertGreater(unguarded, guarded)
+
+    def test_player_profile_sample_config_trusts_tight_reads_earlier_than_loose_reads(self):
+        config = {
+            "tight_start_hands": 5,
+            "tight_full_hands": 20,
+            "loose_start_hands": 25,
+            "loose_full_hands": 75,
+        }
+        tight_opponent = {
+            "vpip": 0.12,
+            "pfr": 0.06,
+            "three_bet_rate": 0.02,
+            "sample_quality": 1.0,
+            "player_hands_observed": 20,
+        }
+        loose_opponent = {
+            "vpip": 0.70,
+            "pfr": 0.55,
+            "three_bet_rate": 0.18,
+            "sample_quality": 1.0,
+            "player_hands_observed": 20,
+        }
+
+        base = normalize_range_pct(
+            preflop_spot_type="srp",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats={"sample_quality": 0.0},
+        )
+        tight = normalize_range_pct(
+            preflop_spot_type="srp",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=tight_opponent,
+            player_range_sample_config=config,
+        )
+        loose = normalize_range_pct(
+            preflop_spot_type="srp",
+            use_preflop_spot_range=True,
+            range_profile="player",
+            opponent_stats=loose_opponent,
+            player_range_sample_config=config,
+        )
+
+        self.assertLess(tight, base)
+        self.assertEqual(loose, base)
+
     def test_player_profile_widens_pressure_range_against_short_stack_aggressor(self):
         opponent = {"vpip": 0.22, "pfr": 0.14, "three_bet_rate": 0.06, "sample_quality": 1.0}
 

@@ -14,6 +14,8 @@ class BotFactoryTests(unittest.TestCase):
         self.assertIn("configured_tournament_equity", tools)
         self.assertIn("tools", tools["configured_tournament_equity"]["params"])
         self.assertIn("raise_sizing", tools["configured_tournament_equity"]["params"])
+        self.assertIn("player_range_sampling", tools["configured_tournament_equity"]["params"])
+        self.assertIn("player_range_sample_config", tools["configured_tournament_equity"]["params"])
         self.assertIn("pot_size_buckets", tools["configured_tournament_equity"]["params"])
         self.assertIn("tool:icm_pressure", tools)
         self.assertIn("strength", tools["tool:icm_pressure"]["params"])
@@ -25,6 +27,8 @@ class BotFactoryTests(unittest.TestCase):
         self.assertIn("max_vpip", tools["tool:button_steal"]["params"])
         self.assertIn("tool:endgame_conversion", tools)
         self.assertIn("final_table_players", tools["tool:endgame_conversion"]["params"])
+        self.assertIn("tool:cbet_pressure", tools)
+        self.assertIn("threshold_discount", tools["tool:cbet_pressure"]["params"])
         self.assertIn("tool:bluff_pressure", tools)
         self.assertIn("min_fold_equity", tools["tool:bluff_pressure"]["params"])
 
@@ -109,6 +113,7 @@ class BotFactoryTests(unittest.TestCase):
                         "tools": [
                             {"type": "icm_pressure", "priority": 10},
                             {"type": "button_steal", "priority": 20},
+                            {"type": "cbet_pressure", "priority": 30},
                         ]
                     },
                 },
@@ -122,16 +127,16 @@ class BotFactoryTests(unittest.TestCase):
         self.assertEqual(
             [bot.name for bot in bots],
             [
-                "conf_mtt_eq_icm_steal_001",
-                "conf_mtt_eq_icm_steal_002",
+                "conf_mtt_eq_icm_steal_cbet_001",
+                "conf_mtt_eq_icm_steal_cbet_002",
                 "conf_mtt_eq_none_001",
             ],
         )
         self.assertEqual(
             name_to_population,
             {
-                "conf_mtt_eq_icm_steal_001": "conf_mtt_eq_icm_steal",
-                "conf_mtt_eq_icm_steal_002": "conf_mtt_eq_icm_steal",
+                "conf_mtt_eq_icm_steal_cbet_001": "conf_mtt_eq_icm_steal_cbet",
+                "conf_mtt_eq_icm_steal_cbet_002": "conf_mtt_eq_icm_steal_cbet",
                 "conf_mtt_eq_none_001": "conf_mtt_eq_none",
             },
         )
@@ -144,11 +149,12 @@ class BotFactoryTests(unittest.TestCase):
                         "tools": [
                             {"type": "icm_pressure", "priority": 10},
                             {"type": "button_steal", "priority": 20},
+                            {"type": "cbet_pressure", "priority": 30},
                         ]
                     },
                 }
             ),
-            "conf_mtt_eq_icm_steal",
+            "conf_mtt_eq_icm_steal_cbet",
         )
 
     def test_build_configurable_bots_accepts_fully_configured_tournament_bot(self):
@@ -165,7 +171,8 @@ class BotFactoryTests(unittest.TestCase):
                             {"type": "table_adaptation", "priority": 20},
                             {"type": "button_steal", "priority": 30},
                             {"type": "endgame_conversion", "priority": 40},
-                            {"type": "bluff_pressure", "priority": 50},
+                            {"type": "cbet_pressure", "priority": 50},
+                            {"type": "bluff_pressure", "priority": 60},
                         ]
                     },
                 },
@@ -176,7 +183,14 @@ class BotFactoryTests(unittest.TestCase):
         self.assertEqual(bots[0].name, "assembled_champion")
         self.assertEqual(
             [tool.name for tool in bots[0].tools],
-            ["icm_pressure", "table_adaptation", "button_steal", "endgame_conversion", "bluff_pressure"],
+            [
+                "icm_pressure",
+                "table_adaptation",
+                "button_steal",
+                "endgame_conversion",
+                "cbet_pressure",
+                "bluff_pressure",
+            ],
         )
         self.assertEqual(name_to_population["assembled_champion"], "configured_tournament_equity")
 

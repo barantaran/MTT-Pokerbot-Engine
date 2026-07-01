@@ -308,6 +308,7 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
     preflop_opener_by_hand: Dict[tuple, str] = {}
     preflop_aggressor_by_hand: Dict[tuple, str] = {}
     flop_bet_seen_by_hand: Dict[tuple, bool] = {}
+    pending_tool_raises: List[Dict[str, Any]] = []
 
     def default_summary() -> Dict[str, Any]:
         return {
@@ -339,14 +340,107 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
             "tool_action_amount_total": {},
             "tool_action_context_totals": {},
             "tool_action_context_averages": {},
+            "tool_response_counts": {},
+            "tool_response_amounts": {},
+            "tool_response_rates": {},
+            "river_betting_range_counts": {},
+            "river_betting_range_rates": {},
         }
+
+    def river_betting_range_counts(summary: Dict[str, Any]) -> Dict[str, Any]:
+        return summary.setdefault(
+            "river_betting_range_counts",
+            {
+                "no_facing_raise_total": 0,
+                "no_facing_bluff_raise": 0,
+                "no_facing_non_bluff_raise": 0,
+                "size_buckets": {},
+            },
+        )
+
+    def river_size_bucket(amount: int, pot_size: int) -> str:
+        if pot_size <= 0:
+            return "unknown"
+        size_ratio = float(amount) / float(pot_size)
+        if size_ratio <= 0.50:
+            return "le_50"
+        if size_ratio <= 0.75:
+            return "le_75"
+        if size_ratio <= 1.00:
+            return "le_100"
+        return "gt_100"
+
+    def response_counts(summary: Dict[str, Any], tool_name: str) -> Dict[str, int]:
+        return summary["tool_response_counts"].setdefault(
+            tool_name,
+            {
+                "raises": 0,
+                "opponent_responses": 0,
+                "opponents_folded": 0,
+                "opponents_called": 0,
+                "opponents_raised_over": 0,
+                "won_immediately": 0,
+                "called_or_raised": 0,
+                "no_response": 0,
+                "unresolved": 0,
+            },
+        )
+
+    def response_amounts(summary: Dict[str, Any], tool_name: str) -> Dict[str, float]:
+        return summary.setdefault("tool_response_amounts", {}).setdefault(
+            tool_name,
+            {
+                "risk_amount_total": 0.0,
+                "pot_before_total": 0.0,
+                "won_immediately_pot_total": 0.0,
+                "called_risk_amount_total": 0.0,
+                "raised_over_risk_amount_total": 0.0,
+                "opponent_call_amount_total": 0.0,
+                "opponent_raise_over_amount_total": 0.0,
+            },
+        )
+
+    def finalize_tool_raise(pending: Dict[str, Any], reason: str) -> None:
+        if pending.get("closed"):
+            return
+        pending["closed"] = True
+        candidate_id = str(pending.get("candidate_id", ""))
+        tool_name = str(pending.get("tool_name", ""))
+        if not candidate_id or not tool_name:
+            return
+        summary = stats.setdefault(candidate_id, default_summary())
+        counts = response_counts(summary, tool_name)
+        amounts = response_amounts(summary, tool_name)
+        responses = int(pending.get("responses", 0) or 0)
+        calls = int(pending.get("calls", 0) or 0)
+        raises_over = int(pending.get("raises_over", 0) or 0)
+        folds = int(pending.get("folds", 0) or 0)
+        risk_amount = float(pending.get("risk_amount", 0.0) or 0.0)
+        pot_before = float(pending.get("pot_before", 0.0) or 0.0)
+        if responses <= 0:
+            counts["no_response"] += 1
+        elif calls == 0 and raises_over == 0 and folds == responses:
+            counts["won_immediately"] += 1
+            amounts["won_immediately_pot_total"] += pot_before
+        elif calls > 0 or raises_over > 0:
+            counts["called_or_raised"] += 1
+            if calls > 0:
+                amounts["called_risk_amount_total"] += risk_amount
+            if raises_over > 0:
+                amounts["raised_over_risk_amount_total"] += risk_amount
+        else:
+            counts["unresolved"] += 1
+
+    def flush_tool_raises_until(hand_key: tuple, street: str) -> None:
+        for pending in pending_tool_raises:
+            if pending.get("closed"):
+                continue
+            if pending.get("hand_key") != hand_key or pending.get("street") != street:
+                finalize_tool_raise(pending, "street_changed")
 
     for event in events:
         event_type = str(event.get("type", ""))
         if event_type not in {"action", "deal", "showdown", "award_pot"}:
-            continue
-        candidate_id = name_to_candidate.get(str(event.get("player", "")))
-        if not candidate_id:
             continue
         hand_key = (
             int(event.get("tournament_id", 0) or 0),
@@ -355,6 +449,11 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
         )
         player_name = str(event.get("player", ""))
         player_hand_key = (*hand_key, player_name)
+        if event_type != "action":
+            flush_tool_raises_until(hand_key, "")
+        candidate_id = name_to_candidate.get(player_name)
+        if not candidate_id:
+            continue
         if event_type == "deal":
             dealt_hands.setdefault(candidate_id, set()).add(player_hand_key)
             continue
@@ -372,6 +471,39 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
         if action == "call" and amount == 0:
             action = "check"
         street = str(event.get("street", ""))
+        flush_tool_raises_until(hand_key, street)
+        for pending in pending_tool_raises:
+            if pending.get("closed"):
+                continue
+            if pending.get("hand_key") != hand_key or pending.get("street") != street:
+                continue
+            if pending.get("player") == player_name:
+                continue
+            if player_name in pending.setdefault("responded_players", set()):
+                continue
+            if int(event.get("call_amount", 0) or 0) <= 0:
+                continue
+            pending["responded_players"].add(player_name)
+            pending["responses"] = int(pending.get("responses", 0) or 0) + 1
+            pending_candidate_id = str(pending.get("candidate_id", ""))
+            pending_tool_name = str(pending.get("tool_name", ""))
+            if pending_candidate_id and pending_tool_name:
+                pending_summary = stats.setdefault(pending_candidate_id, default_summary())
+                counts = response_counts(pending_summary, pending_tool_name)
+                amounts = response_amounts(pending_summary, pending_tool_name)
+                counts["opponent_responses"] += 1
+                if action == "fold":
+                    pending["folds"] = int(pending.get("folds", 0) or 0) + 1
+                    counts["opponents_folded"] += 1
+                elif action == "raise":
+                    pending["raises_over"] = int(pending.get("raises_over", 0) or 0) + 1
+                    counts["opponents_raised_over"] += 1
+                    amounts["opponent_raise_over_amount_total"] += amount
+                    finalize_tool_raise(pending, "raised_over")
+                else:
+                    pending["calls"] = int(pending.get("calls", 0) or 0) + 1
+                    counts["opponents_called"] += 1
+                    amounts["opponent_call_amount_total"] += amount
         if street == "preflop" and action in {"call", "raise"} and amount > 0:
             vpip_hands.setdefault(candidate_id, set()).add(player_hand_key)
             if action == "raise":
@@ -423,6 +555,28 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
             summary["postflop_call_count"] += 1
 
         tool_event = event.get("tool_event")
+        is_tool_bluff_raise = (
+            isinstance(tool_event, dict)
+            and str(tool_event.get("tool", "") or "") == "bluff_pressure"
+            and str(tool_event.get("decision", "") or "") == "force_raise"
+        )
+        if street == "river" and action == "raise" and amount > 0 and int(event.get("call_amount", 0) or 0) == 0:
+            river_counts = river_betting_range_counts(summary)
+            river_counts["no_facing_raise_total"] = int(river_counts.get("no_facing_raise_total", 0)) + 1
+            bluff_key = "no_facing_bluff_raise" if is_tool_bluff_raise else "no_facing_non_bluff_raise"
+            river_counts[bluff_key] = int(river_counts.get(bluff_key, 0)) + 1
+            bucket = river_size_bucket(amount, int(event.get("pot_size", 0) or 0))
+            bucket_counts = river_counts.setdefault("size_buckets", {}).setdefault(
+                bucket,
+                {
+                    "no_facing_raise_total": 0,
+                    "no_facing_bluff_raise": 0,
+                    "no_facing_non_bluff_raise": 0,
+                },
+            )
+            bucket_counts["no_facing_raise_total"] = int(bucket_counts.get("no_facing_raise_total", 0)) + 1
+            bucket_counts[bluff_key] = int(bucket_counts.get(bluff_key, 0)) + 1
+
         if isinstance(tool_event, dict):
             tool_name = str(tool_event.get("tool", "") or "")
             if tool_name:
@@ -452,6 +606,31 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
                             tool_totals[key] = float(tool_totals.get(key, 0.0)) + float(tool_event.get(key, 0.0) or 0.0)
                         except (TypeError, ValueError):
                             pass
+                    pending_tool_raises.append(
+                        {
+                            "candidate_id": candidate_id,
+                            "tool_name": tool_name,
+                            "hand_key": hand_key,
+                            "street": street,
+                            "player": player_name,
+                            "risk_amount": amount,
+                            "pot_before": int(event.get("pot_size", 0) or 0),
+                            "responded_players": set(),
+                            "responses": 0,
+                            "folds": 0,
+                            "calls": 0,
+                            "raises_over": 0,
+                            "closed": False,
+                        }
+                    )
+                    response_counts(summary, tool_name)["raises"] += 1
+                    response_amount = response_amounts(summary, tool_name)
+                    response_amount["risk_amount_total"] += amount
+                    response_amount["pot_before_total"] += int(event.get("pot_size", 0) or 0)
+
+    for pending in pending_tool_raises:
+        if not pending.get("closed"):
+            finalize_tool_raise(pending, "end_of_events")
 
     action_candidate_ids = (
         set(stats)
@@ -541,6 +720,49 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
             summary["tool_action_context_averages"][tool_name] = {
                 key: float(value) / total_count for key, value in sorted(totals.items())
             }
+        summary["tool_response_rates"] = {}
+        for tool_name, counts in dict(summary.get("tool_response_counts", {})).items():
+            raises = int(dict(counts).get("raises", 0) or 0)
+            responses = int(dict(counts).get("opponent_responses", 0) or 0)
+            amounts = dict(summary.get("tool_response_amounts", {}).get(tool_name, {}))
+            risk_total = float(amounts.get("risk_amount_total", 0.0) or 0.0)
+            won_pot_total = float(amounts.get("won_immediately_pot_total", 0.0) or 0.0)
+            failed_risk_total = (
+                float(amounts.get("called_risk_amount_total", 0.0) or 0.0)
+                + float(amounts.get("raised_over_risk_amount_total", 0.0) or 0.0)
+            )
+            summary["tool_response_rates"][tool_name] = {
+                "won_immediately_rate": float(dict(counts).get("won_immediately", 0) or 0) / raises if raises else 0.0,
+                "called_or_raised_rate": float(dict(counts).get("called_or_raised", 0) or 0) / raises if raises else 0.0,
+                "opponent_fold_rate": float(dict(counts).get("opponents_folded", 0) or 0) / responses if responses else 0.0,
+                "opponent_call_rate": float(dict(counts).get("opponents_called", 0) or 0) / responses if responses else 0.0,
+                "opponent_raise_over_rate": float(dict(counts).get("opponents_raised_over", 0) or 0) / responses if responses else 0.0,
+                "average_risk_amount": risk_total / raises if raises else 0.0,
+                "average_pot_before": float(amounts.get("pot_before_total", 0.0) or 0.0) / raises if raises else 0.0,
+                "immediate_chip_delta_estimate": won_pot_total - failed_risk_total,
+                "immediate_chip_delta_per_raise_estimate": (won_pot_total - failed_risk_total) / raises if raises else 0.0,
+            }
+        river_counts = river_betting_range_counts(summary)
+        river_total = int(river_counts.get("no_facing_raise_total", 0) or 0)
+        river_bluffs = int(river_counts.get("no_facing_bluff_raise", 0) or 0)
+        summary["river_betting_range_rates"] = {
+            "no_facing_bluff_share": float(river_bluffs) / river_total if river_total else 0.0,
+            "no_facing_non_bluff_share": (
+                float(river_counts.get("no_facing_non_bluff_raise", 0) or 0) / river_total if river_total else 0.0
+            ),
+            "size_buckets": {},
+        }
+        for bucket, bucket_counts in dict(river_counts.get("size_buckets", {})).items():
+            bucket_total = int(dict(bucket_counts).get("no_facing_raise_total", 0) or 0)
+            bucket_bluffs = int(dict(bucket_counts).get("no_facing_bluff_raise", 0) or 0)
+            summary["river_betting_range_rates"]["size_buckets"][str(bucket)] = {
+                "no_facing_bluff_share": float(bucket_bluffs) / bucket_total if bucket_total else 0.0,
+                "no_facing_non_bluff_share": (
+                    float(dict(bucket_counts).get("no_facing_non_bluff_raise", 0) or 0) / bucket_total
+                    if bucket_total
+                    else 0.0
+                ),
+            }
     return stats
 
 
@@ -577,6 +799,11 @@ def merge_candidate_action_summaries(summaries: Iterable[Dict[str, Any]]) -> Dic
             "tool_action_amount_total": {},
             "tool_action_context_totals": {},
             "tool_action_context_averages": {},
+            "tool_response_counts": {},
+            "tool_response_amounts": {},
+            "tool_response_rates": {},
+            "river_betting_range_counts": {},
+            "river_betting_range_rates": {},
         }
 
     for action_summary in summaries:
@@ -633,6 +860,34 @@ def merge_candidate_action_summaries(summaries: Iterable[Dict[str, Any]]) -> Dic
                         target_totals[str(key)] = float(target_totals.get(str(key), 0.0)) + float(value)
                     except (TypeError, ValueError):
                         pass
+            for tool_name, counts in dict(row.get("tool_response_counts", {})).items():
+                target_counts = target["tool_response_counts"].setdefault(str(tool_name), {})
+                for key, value in dict(counts).items():
+                    target_counts[str(key)] = int(target_counts.get(str(key), 0)) + int(value)
+            for tool_name, amounts in dict(row.get("tool_response_amounts", {})).items():
+                target_amounts = target["tool_response_amounts"].setdefault(str(tool_name), {})
+                for key, value in dict(amounts).items():
+                    try:
+                        target_amounts[str(key)] = float(target_amounts.get(str(key), 0.0)) + float(value)
+                    except (TypeError, ValueError):
+                        pass
+            river_counts = dict(row.get("river_betting_range_counts", {}))
+            if river_counts:
+                target_river = target["river_betting_range_counts"]
+                for key in ("no_facing_raise_total", "no_facing_bluff_raise", "no_facing_non_bluff_raise"):
+                    target_river[key] = int(target_river.get(key, 0)) + int(river_counts.get(key, 0) or 0)
+                target_buckets = target_river.setdefault("size_buckets", {})
+                for bucket, bucket_counts in dict(river_counts.get("size_buckets", {})).items():
+                    target_bucket = target_buckets.setdefault(
+                        str(bucket),
+                        {
+                            "no_facing_raise_total": 0,
+                            "no_facing_bluff_raise": 0,
+                            "no_facing_non_bluff_raise": 0,
+                        },
+                    )
+                    for key in ("no_facing_raise_total", "no_facing_bluff_raise", "no_facing_non_bluff_raise"):
+                        target_bucket[key] = int(target_bucket.get(key, 0)) + int(dict(bucket_counts).get(key, 0) or 0)
 
     for row in merged.values():
         total = max(1, int(row["action_total"]))
@@ -674,6 +929,51 @@ def merge_candidate_action_summaries(summaries: Iterable[Dict[str, Any]]) -> Dic
             totals = dict(row.get("tool_action_context_totals", {}).get(tool_name, {}))
             row["tool_action_context_averages"][tool_name] = {
                 key: float(value) / total_count for key, value in sorted(totals.items())
+            }
+        row["tool_response_rates"] = {}
+        for tool_name, counts in dict(row.get("tool_response_counts", {})).items():
+            counts = dict(counts)
+            raises = int(counts.get("raises", 0) or 0)
+            responses = int(counts.get("opponent_responses", 0) or 0)
+            amounts = dict(row.get("tool_response_amounts", {}).get(tool_name, {}))
+            risk_total = float(amounts.get("risk_amount_total", 0.0) or 0.0)
+            won_pot_total = float(amounts.get("won_immediately_pot_total", 0.0) or 0.0)
+            failed_risk_total = (
+                float(amounts.get("called_risk_amount_total", 0.0) or 0.0)
+                + float(amounts.get("raised_over_risk_amount_total", 0.0) or 0.0)
+            )
+            row["tool_response_rates"][tool_name] = {
+                "won_immediately_rate": float(counts.get("won_immediately", 0) or 0) / raises if raises else 0.0,
+                "called_or_raised_rate": float(counts.get("called_or_raised", 0) or 0) / raises if raises else 0.0,
+                "opponent_fold_rate": float(counts.get("opponents_folded", 0) or 0) / responses if responses else 0.0,
+                "opponent_call_rate": float(counts.get("opponents_called", 0) or 0) / responses if responses else 0.0,
+                "opponent_raise_over_rate": float(counts.get("opponents_raised_over", 0) or 0) / responses if responses else 0.0,
+                "average_risk_amount": risk_total / raises if raises else 0.0,
+                "average_pot_before": float(amounts.get("pot_before_total", 0.0) or 0.0) / raises if raises else 0.0,
+                "immediate_chip_delta_estimate": won_pot_total - failed_risk_total,
+                "immediate_chip_delta_per_raise_estimate": (won_pot_total - failed_risk_total) / raises if raises else 0.0,
+            }
+        river_counts = row.setdefault("river_betting_range_counts", {})
+        river_total = int(river_counts.get("no_facing_raise_total", 0) or 0)
+        river_bluffs = int(river_counts.get("no_facing_bluff_raise", 0) or 0)
+        row["river_betting_range_rates"] = {
+            "no_facing_bluff_share": float(river_bluffs) / river_total if river_total else 0.0,
+            "no_facing_non_bluff_share": (
+                float(river_counts.get("no_facing_non_bluff_raise", 0) or 0) / river_total if river_total else 0.0
+            ),
+            "size_buckets": {},
+        }
+        for bucket, bucket_counts in dict(river_counts.get("size_buckets", {})).items():
+            bucket_counts = dict(bucket_counts)
+            bucket_total = int(bucket_counts.get("no_facing_raise_total", 0) or 0)
+            bucket_bluffs = int(bucket_counts.get("no_facing_bluff_raise", 0) or 0)
+            row["river_betting_range_rates"]["size_buckets"][str(bucket)] = {
+                "no_facing_bluff_share": float(bucket_bluffs) / bucket_total if bucket_total else 0.0,
+                "no_facing_non_bluff_share": (
+                    float(bucket_counts.get("no_facing_non_bluff_raise", 0) or 0) / bucket_total
+                    if bucket_total
+                    else 0.0
+                ),
             }
     return merged
 

@@ -1,0 +1,44 @@
+{
+  "name": "conf_mtt_eq_playerrange_icm_reraise_steal_cbet",
+  "type": "configured_tournament_equity",
+  "population": "configured_tournament_equity_player_range_cbet",
+  "include_tool_set_in_name": true,
+  "params": {
+    "use_preflop_spot_range": true,
+    "range_profile": "player",
+    "tools": [
+      {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": true},
+      {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
+      {
+        "type": "button_steal",
+        "priority": 40,
+        "sample_quality_min": 0.5,
+        "max_vpip": 0.3,
+        "max_pfr": 0.16,
+        "max_three_bet_rate": 0.08,
+        "base_discount": 0.018,
+        "tightness_multiplier": 0.12,
+        "max_discount": 0.04,
+        "requires_table_sample": true
+      },
+      {
+        "type": "cbet_pressure",
+        "priority": 45,
+        "sample_quality_min": 0.5,
+        "min_equity": 0.42,
+        "max_payout_pressure": 0.7,
+        "min_stack_bb": 14.0,
+        "max_active_players": 2,
+        "min_spr": 1.75,
+        "threshold_discount": 0.035,
+        "max_threshold_discount": 0.06,
+        "fold_equity_weight": 0.04,
+        "min_fold_equity": 0.38,
+        "flop_size": 0.33,
+        "max_stack_fraction": 0.18,
+        "require_initiative": true,
+        "allow_position_proxy": true
+      }
+    ]
+  }
+}

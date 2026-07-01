@@ -1,0 +1,25 @@
+{
+  "name": "conf_mtt_eq_icm_reraise_steal",
+  "type": "configured_tournament_equity",
+  "population": "configured_tournament_equity",
+  "include_tool_set_in_name": true,
+  "params": {
+    "use_preflop_spot_range": false,
+    "tools": [
+      {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": true},
+      {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
+      {
+        "type": "button_steal",
+        "priority": 40,
+        "sample_quality_min": 0.5,
+        "max_vpip": 0.3,
+        "max_pfr": 0.16,
+        "max_three_bet_rate": 0.08,
+        "base_discount": 0.018,
+        "tightness_multiplier": 0.12,
+        "max_discount": 0.04,
+        "requires_table_sample": true
+      }
+    ]
+  }
+}
