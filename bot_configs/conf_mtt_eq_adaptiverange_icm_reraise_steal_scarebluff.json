@@ -1,0 +1,53 @@
+{
+  "name": "conf_mtt_eq_adaptiverange_icm_reraise_steal_scarebluff",
+  "type": "configured_tournament_equity",
+  "population": "configured_tournament_equity_adaptive_range_scarebluff",
+  "include_tool_set_in_name": true,
+  "params": {
+    "use_preflop_spot_range": true,
+    "range_profile": "adaptive",
+    "tools": [
+      {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": true},
+      {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
+      {
+        "type": "button_steal",
+        "priority": 40,
+        "sample_quality_min": 0.5,
+        "max_vpip": 0.3,
+        "max_pfr": 0.16,
+        "max_three_bet_rate": 0.08,
+        "base_discount": 0.018,
+        "tightness_multiplier": 0.12,
+        "max_discount": 0.04,
+        "requires_table_sample": true
+      },
+      {
+        "type": "bluff_pressure",
+        "priority": 46,
+        "mode": "force_raise",
+        "sample_quality_min": 0.35,
+        "min_fold_equity": 0.44,
+        "min_equity": 0.32,
+        "max_equity": 0.62,
+        "max_threshold_gap": 0.28,
+        "max_payout_pressure": 0.70,
+        "min_stack_bb": 6.0,
+        "max_active_players": 2,
+        "avoid_low_spr": true,
+        "min_spr": 1.35,
+        "allowed_streets": [5],
+        "river_size_min": 0.75,
+        "river_size_max": 1.00,
+        "max_stack_fraction": 0.75,
+        "required_fold_equity_safety_margin": 0.08,
+        "equity_fold_equity_credit": 0.08,
+        "max_equity_fold_equity_credit": 0.06,
+        "threshold_discount": 0.10,
+        "max_threshold_discount": 0.16,
+        "require_position_or_initiative": false,
+        "require_river_scare_card": true,
+        "min_ev_edge_pot_fraction": 0.0
+      }
+    ]
+  }
+}

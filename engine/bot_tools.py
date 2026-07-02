@@ -5,6 +5,11 @@ from typing import Any, Dict, Iterable, Mapping, Protocol
 
 from engine.icm import calculate_exact_icm
 
+try:
+    from treys import Card
+except ImportError:  # pragma: no cover - treys is a runtime dependency, but keep config tooling importable.
+    Card = None
+
 
 @dataclass(frozen=True)
 class DecisionContext:
@@ -670,6 +675,14 @@ class BluffPressureTool:
         leverage_max_payout_pressure: float | None = None,
         leverage_cover_fraction_min: float = 0.50,
         leverage_stack_ratio_min: float = 1.10,
+        require_stack_advantage: bool = False,
+        stack_advantage_cover_fraction_min: float = 0.50,
+        stack_advantage_stack_ratio_min: float = 1.25,
+        require_river_scare_card: bool = False,
+        survival_payout_pressure_min: float = 1.0,
+        survival_max_risk_stack_fraction: float = 1.0,
+        survival_cover_fraction_min: float = 0.50,
+        survival_stack_ratio_min: float = 1.10,
     ):
         self.priority = int(priority)
         self.enabled = bool(enabled)
@@ -708,6 +721,14 @@ class BluffPressureTool:
         self.leverage_max_payout_pressure = max(self.max_payout_pressure, min(1.0, float(raw_leverage_max)))
         self.leverage_cover_fraction_min = max(0.0, min(1.0, float(leverage_cover_fraction_min)))
         self.leverage_stack_ratio_min = max(0.0, float(leverage_stack_ratio_min))
+        self.require_stack_advantage = bool(require_stack_advantage)
+        self.stack_advantage_cover_fraction_min = max(0.0, min(1.0, float(stack_advantage_cover_fraction_min)))
+        self.stack_advantage_stack_ratio_min = max(0.0, float(stack_advantage_stack_ratio_min))
+        self.require_river_scare_card = bool(require_river_scare_card)
+        self.survival_payout_pressure_min = max(0.0, min(1.0, float(survival_payout_pressure_min)))
+        self.survival_max_risk_stack_fraction = max(0.0, min(1.0, float(survival_max_risk_stack_fraction)))
+        self.survival_cover_fraction_min = max(0.0, min(1.0, float(survival_cover_fraction_min)))
+        self.survival_stack_ratio_min = max(0.0, float(survival_stack_ratio_min))
 
     def apply(self, context: DecisionContext, game_state: Mapping[str, Any]) -> DecisionContext:
         if not self.enabled:
@@ -723,6 +744,12 @@ class BluffPressureTool:
         amount = self._raise_amount(context)
         if amount <= 0:
             return self._with_reject_event(context, "no_raise_amount", fold_equity=fold_equity)
+        if self.require_river_scare_card and not self._has_river_scare_card(context, game_state):
+            return self._with_reject_event(context, "river_texture", amount=amount, fold_equity=fold_equity)
+        if self.require_stack_advantage and not self._has_stack_advantage(context, game_state):
+            return self._with_reject_event(context, "stack_disadvantage", amount=amount, fold_equity=fold_equity)
+        if self._has_survival_risk(context, game_state, amount):
+            return self._with_reject_event(context, "survival_risk", amount=amount, fold_equity=fold_equity)
         required_fold_equity = self._required_fold_equity(context, amount)
         if fold_equity < required_fold_equity:
             return self._with_reject_event(
@@ -822,6 +849,35 @@ class BluffPressureTool:
             return False
         return context.stack_size >= avg_stack * self.leverage_stack_ratio_min
 
+    def _has_survival_risk(self, context: DecisionContext, game_state: Mapping[str, Any], amount: int) -> bool:
+        if self.survival_payout_pressure_min >= 1.0:
+            return False
+        if context.payout_pressure < self.survival_payout_pressure_min:
+            return False
+        if context.stack_size <= 0:
+            return False
+        risk_fraction = float(amount) / float(context.stack_size)
+        if risk_fraction <= self.survival_max_risk_stack_fraction:
+            return False
+        if self._cover_fraction(context, game_state) >= self.survival_cover_fraction_min:
+            return False
+        avg_stack = self._float(game_state.get("avg_table_stack"))
+        if avg_stack <= 0:
+            avg_stack = self._average_table_stack(game_state)
+        if avg_stack > 0 and context.stack_size >= avg_stack * self.survival_stack_ratio_min:
+            return False
+        return True
+
+    def _has_stack_advantage(self, context: DecisionContext, game_state: Mapping[str, Any]) -> bool:
+        if self._cover_fraction(context, game_state) >= self.stack_advantage_cover_fraction_min:
+            return True
+        avg_stack = self._float(game_state.get("avg_table_stack"))
+        if avg_stack <= 0:
+            avg_stack = self._average_table_stack(game_state)
+        if avg_stack <= 0:
+            return False
+        return context.stack_size >= avg_stack * self.stack_advantage_stack_ratio_min
+
     def _cover_fraction(self, context: DecisionContext, game_state: Mapping[str, Any]) -> float:
         table_stacks = game_state.get("table_stacks")
         if not isinstance(table_stacks, list) or len(table_stacks) <= 1:
@@ -849,6 +905,68 @@ class BluffPressureTool:
         stacks = [self._float(stack) for stack in table_stacks]
         stacks = [stack for stack in stacks if stack > 0]
         return sum(stacks) / len(stacks) if stacks else 0.0
+
+    def _has_river_scare_card(self, context: DecisionContext, game_state: Mapping[str, Any]) -> bool:
+        if context.street != 5:
+            return True
+        board_cards = game_state.get("board_cards")
+        if not isinstance(board_cards, list) or len(board_cards) < 5:
+            return False
+        board = [self._card_texture(card) for card in board_cards[:5]]
+        if any(card is None for card in board):
+            return False
+        prior = board[:4]
+        river = board[4]
+        assert river is not None
+        prior_ranks = [card[0] for card in prior if card is not None]
+        prior_suits = [card[1] for card in prior if card is not None and card[1] is not None]
+        river_rank, river_suit = river
+
+        if river_rank >= 12:
+            return True
+        if prior_ranks and river_rank > max(prior_ranks):
+            return True
+        if self._river_completes_flush(prior_suits, river_suit):
+            return True
+        if self._straight_window_count(prior_ranks) < self._straight_window_count(prior_ranks + [river_rank]):
+            return True
+        rank_counts = {rank: prior_ranks.count(rank) for rank in set(prior_ranks)}
+        if rank_counts.get(river_rank, 0) > 0 and river_rank >= 10:
+            return True
+        return False
+
+    def _card_texture(self, raw_card: Any) -> tuple[int, int | None] | None:
+        try:
+            card_int = int(raw_card)
+        except (TypeError, ValueError):
+            return None
+        if 2 <= card_int <= 14:
+            return card_int, None
+        if Card is None:
+            return None
+        try:
+            rank = int(Card.get_rank_int(card_int)) + 2
+            suit = int(Card.get_suit_int(card_int))
+        except Exception:
+            return None
+        if not (2 <= rank <= 14):
+            return None
+        return rank, suit
+
+    def _river_completes_flush(self, prior_suits: list[int], river_suit: int | None) -> bool:
+        if river_suit is None:
+            return False
+        return prior_suits.count(river_suit) == 2
+
+    def _straight_window_count(self, ranks: Iterable[int]) -> int:
+        rank_set = set(ranks)
+        if 14 in rank_set:
+            rank_set.add(1)
+        count = 0
+        for low in range(1, 11):
+            if len(rank_set.intersection(range(low, low + 5))) >= 4:
+                count += 1
+        return count
 
     def _int(self, value: Any, default: int = 0) -> int:
         try:
@@ -1118,6 +1236,14 @@ def available_decision_tools() -> Dict[str, Dict[str, Any]]:
                 "leverage_max_payout_pressure",
                 "leverage_cover_fraction_min",
                 "leverage_stack_ratio_min",
+                "require_stack_advantage",
+                "stack_advantage_cover_fraction_min",
+                "stack_advantage_stack_ratio_min",
+                "require_river_scare_card",
+                "survival_payout_pressure_min",
+                "survival_max_risk_stack_fraction",
+                "survival_cover_fraction_min",
+                "survival_stack_ratio_min",
             ],
         },
     }
