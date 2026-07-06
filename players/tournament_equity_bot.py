@@ -162,6 +162,8 @@ class TournamentEquityBot(Bot):
 
         if context.tool_event is not None:
             game_state["_bot_tool_event"] = dict(context.tool_event)
+        if context.tool_events:
+            game_state["_bot_tool_events"] = [dict(item) for item in context.tool_events]
 
         if context.forced_action is not None:
             return context.forced_action

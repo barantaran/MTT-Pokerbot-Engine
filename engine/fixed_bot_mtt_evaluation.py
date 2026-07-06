@@ -512,6 +512,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.report:
         reports = _load_reports(list(args.report), engine_root=engine_root)
         print(_report_completion_line(reports))
+        print()
         print(format_population_table(merge_population_summaries(reports)))
         return
 

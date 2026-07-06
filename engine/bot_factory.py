@@ -13,6 +13,8 @@ from players.icm_tight_bot import ICMTightBot
 from players.noisy_equity_bot import NoisyEquityBot
 from players.random_bot import RandomBot
 from players.range_policy_bot import RangePolicyBot
+from players.sticky_call_station_bot import StickyCallStationBot
+from players.three_bet_maniac_bot import ThreeBetManiacBot
 from players.tight_equity_bot import TightEquityBot
 from players.tournament_equity_bot import (
     AdaptiveTournamentICMEquityBot,
@@ -36,6 +38,8 @@ BOT_DEFINITIONS: tuple[BotDefinition, ...] = (
     BotDefinition(RandomBot, "random", ("random", "RandomBot")),
     BotDefinition(CallBot, "call", ("call", "calling_station", "CallBot")),
     BotDefinition(AggressiveNoEquityBot, "aggressive_no_equity", ("aggressive_no_equity", "AggressiveNoEquityBot")),
+    BotDefinition(ThreeBetManiacBot, "three_bet_maniac", ("three_bet_maniac", "3bet_maniac", "ThreeBetManiacBot")),
+    BotDefinition(StickyCallStationBot, "sticky_call_station", ("sticky_call_station", "sticky_caller", "StickyCallStationBot")),
     BotDefinition(AggressiveBot, "aggressive_equity", ("aggressive_equity", "equity_aggressive", "aggressive", "AggressiveBot")),
     BotDefinition(TightEquityBot, "tight_equity", ("tight_equity", "tight", "TightEquityBot")),
     BotDefinition(NoisyEquityBot, "noisy_equity", ("noisy_equity", "noisy", "NoisyEquityBot")),

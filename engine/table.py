@@ -66,6 +66,7 @@ class Table:
         call_amount: int = 0,
         pot_size: int = 0,
         tool_event: Dict[str, Any] | None = None,
+        tool_events: List[Dict[str, Any]] | None = None,
     ) -> Dict[str, Any]:
         event = {
             "type": "action",
@@ -82,6 +83,8 @@ class Table:
         }
         if tool_event:
             event["tool_event"] = dict(tool_event)
+        if tool_events:
+            event["tool_events"] = [dict(item) for item in tool_events]
         return event
 
     def play_hand(self, blinds: Dict[str, int]) -> Tuple[List[PlayerState], List[Dict]]:
@@ -335,6 +338,9 @@ class Table:
                     action_tool_event = state.get("_bot_tool_event")
                     if not isinstance(action_tool_event, dict):
                         action_tool_event = None
+                    action_tool_events = state.get("_bot_tool_events")
+                    if not isinstance(action_tool_events, list):
+                        action_tool_events = None
 
                     if action == "fold" and call_amount > 0:
                         player.is_active = False
@@ -346,7 +352,7 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
-                            tool_event=action_tool_event,
+                            tool_event=action_tool_event, tool_events=action_tool_events,
                         )
                         events.append(event)
                         self.stats_tracker.observe_event(event)
@@ -360,7 +366,7 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
-                            tool_event=action_tool_event,
+                            tool_event=action_tool_event, tool_events=action_tool_events,
                         )
                         events.append(event)
                         self.stats_tracker.observe_event(event)
@@ -383,7 +389,7 @@ class Table:
                             position=action_position,
                             call_amount=call_amount,
                             pot_size=action_pot_size,
-                            tool_event=action_tool_event,
+                            tool_event=action_tool_event, tool_events=action_tool_events,
                         )
                         events.append(event)
                         self.stats_tracker.observe_event(event)
@@ -421,7 +427,7 @@ class Table:
                                 position=action_position,
                                 call_amount=call_amount,
                                 pot_size=action_pot_size,
-                                tool_event=action_tool_event,
+                                tool_event=action_tool_event, tool_events=action_tool_events,
                             )
                             events.append(event)
                             self.stats_tracker.observe_event(event)
@@ -434,7 +440,7 @@ class Table:
                                 position=action_position,
                                 call_amount=call_amount,
                                 pot_size=action_pot_size,
-                                tool_event=action_tool_event,
+                                tool_event=action_tool_event, tool_events=action_tool_events,
                             )
                             events.append(event)
                             self.stats_tracker.observe_event(event)

@@ -555,10 +555,14 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
             summary["postflop_call_count"] += 1
 
         tool_event = event.get("tool_event")
-        is_tool_bluff_raise = (
-            isinstance(tool_event, dict)
-            and str(tool_event.get("tool", "") or "") == "bluff_pressure"
-            and str(tool_event.get("decision", "") or "") == "force_raise"
+        tool_events = event.get("tool_events")
+        if not isinstance(tool_events, list) or not tool_events:
+            tool_events = [tool_event] if isinstance(tool_event, dict) else []
+        is_tool_bluff_raise = any(
+            isinstance(item, dict)
+            and str(item.get("tool", "") or "") == "bluff_pressure"
+            and str(item.get("decision", "") or "") == "force_raise"
+            for item in tool_events
         )
         if street == "river" and action == "raise" and amount > 0 and int(event.get("call_amount", 0) or 0) == 0:
             river_counts = river_betting_range_counts(summary)
@@ -577,7 +581,9 @@ def summarize_candidate_actions(events: Iterable[Dict[str, Any]], name_to_candid
             bucket_counts["no_facing_raise_total"] = int(bucket_counts.get("no_facing_raise_total", 0)) + 1
             bucket_counts[bluff_key] = int(bucket_counts.get(bluff_key, 0)) + 1
 
-        if isinstance(tool_event, dict):
+        for tool_event in tool_events:
+            if not isinstance(tool_event, dict):
+                continue
             tool_name = str(tool_event.get("tool", "") or "")
             if tool_name:
                 decision = str(tool_event.get("decision", "") or "unknown")

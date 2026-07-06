@@ -33,6 +33,7 @@ class DecisionContext:
     max_raise_extra: int
     forced_action: tuple[str, int] | None = None
     tool_event: Dict[str, Any] | None = None
+    tool_events: tuple = ()
 
     def with_raise_threshold(self, value: float) -> "DecisionContext":
         return replace(self, raise_threshold=max(0.36, min(0.90, float(value))))
@@ -50,7 +51,8 @@ class DecisionContext:
         return replace(self, forced_action=(str(action), max(0, int(amount))))
 
     def with_tool_event(self, event: Mapping[str, Any]) -> "DecisionContext":
-        return replace(self, tool_event=dict(event))
+        payload = dict(event)
+        return replace(self, tool_event=payload, tool_events=self.tool_events + (payload,))
 
 
 class BotTool(Protocol):

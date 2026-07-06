@@ -100,6 +100,18 @@ Rules:
 - Seeds must be unique.
 - One seed belongs to one MTT only.
 
+### Cross-Run Seed Bands
+
+Uniqueness above is *within* one run. To keep separate runs statistically independent, give each phase its own seed band that does not overlap any prior run:
+
+```text
+phase170  mtt_seed_start 170001  -> seeds 170001..170100
+phase171  mtt_seed_start 171001  -> seeds 171001..171100
+phase172  mtt_seed_start 172001  -> seeds 172001..172100
+```
+
+Convention: `mtt_seed_start = <phase_number>001`. With `mtt_count <= 1000` the bands never collide. Reusing a prior band re-draws the same tournaments (reproducible A/B), but for a fresh independent field always bump to a new band.
+
 ## Workers
 
 Set workers based on CPU and stability:
@@ -116,6 +128,45 @@ Notes:
 - More workers can increase memory and CPU pressure.
 - If a run crashes or the machine becomes unresponsive, reduce workers.
 - Results should not depend on worker count because each MTT has its own seed.
+
+## Compose A New Bot From Sibling Configs
+
+Configured bots are a `type` + a list of `tools` ordered by `priority`. A "feature" suffix in the filename is usually just one extra tool instance:
+
+- `_cbet`       -> a `cbet_pressure` tool (flop continuation). A real, self-standing tool type.
+- `_turnbarrel` -> a `bluff_pressure` tool gated to the turn (`allowed_streets: [4]`, `turn_size`). Not its own type.
+- `_scarebluff` -> a `bluff_pressure` tool gated to the river (`allowed_streets: [5]`, `require_river_scare_card`).
+
+Registered tool types live in `engine/bot_tools.py` (`cbet_pressure -> ContinuationPressureTool`, `bluff_pressure -> BluffPressureTool`). Street codes: `3` flop, `4` turn, `5` river.
+
+To build a combined bot, take a base config and graft the extra tool(s) from existing siblings, then re-sort by `priority` and give the bot a unique `name` and `population`:
+
+```python
+import json
+base = json.load(open('bot_configs/BASE.json'))
+cbet = json.load(open('bot_configs/BASE_cbet.json'))
+tb   = json.load(open('bot_configs/BASE_turnbarrel.json'))
+
+cbet_tool = [t for t in cbet['params']['tools'] if t['type'] == 'cbet_pressure']
+tb_tool   = [t for t in tb['params']['tools']
+             if t['type'] == 'bluff_pressure' and t.get('allowed_streets') == [4]]
+
+new = json.loads(json.dumps(base))              # deep copy
+new['name'] = 'BASE_cbet_turnbarrel'
+new['population'] = 'BASE_pop_cbet_turnbarrel'  # must be unique across the field
+tools = new['params']['tools'] + cbet_tool + tb_tool
+tools.sort(key=lambda t: t['priority'])
+prios = [t['priority'] for t in tools]
+assert prios == sorted(prios) and len(prios) == len(set(prios)), prios  # no priority clash
+new['params']['tools'] = tools
+json.dump(new, open('bot_configs/BASE_cbet_turnbarrel.json', 'w'), indent=2)
+```
+
+Rules:
+
+- `name` and `population` must be unique — duplicate `name` breaks the factory.
+- No two tools may share a `priority`.
+- Stacking pressure tools compounds aggression across streets (flop cbet -> turn barrel -> river scare). Each still gates on its own equity / fold-equity / SPR mins, but validate the combo in a marathon; do not assume additive edges stack.
 
 ## Launch A Duel
 
@@ -198,9 +249,11 @@ Use a marathon to rank bots in a mixed field.
 Current preferred all-non-trash shape:
 
 - At most `20` bot populations.
-- `10` seats per population.
-- `200` total entries per MTT.
-- `100` MTTs for a serious run.
+- `20` seats per population (recent phase163/170/171/172 shape; `10` is the older lighter shape).
+- `400` total entries per MTT (`20 pops x 20 seats`; `200` for the `10`-seat shape).
+- `100` MTTs for a serious run — `100 x 400 = 2000` entries per population.
+
+Pick `10` seats for a faster/cheaper marathon, `20` seats for the current serious ranking runs. Keep `count` equal across all populations so the field stays balanced.
 
 Example:
 
@@ -251,6 +304,28 @@ Interpretation:
 - ROI is relative to equal-share expected payout for the reported field.
 - Ranking is by total payout, then score, wins, average position, and name.
 - A duel winner can still underperform in a mixed field.
+
+## Launch In Background (Long Marathons)
+
+A `100 x 400` marathon runs ~50-60 min. Launch detached, record the main PID for a clean kill path, and tail the log instead of blocking:
+
+```bash
+LOG=/tmp/phaseXXX.log
+nohup python3 -m engine.fixed_bot_mtt_evaluation \
+  --config configs/phaseXXX_all_nontrash_100x400.json > "$LOG" 2>&1 &
+
+# main runner PID (parent of the worker pool) — kill path:
+pgrep -af "fixed_bot_mtt_evaluation.*phaseXXX" | grep -v "bash -c"
+#   -> kill <main_pid>   tears down the whole worker pool
+
+tail -f "$LOG"   # heartbeat/progress lines
+```
+
+Notes:
+
+- The first PID is the parent runner; the rest are the `workers` pool children. Kill the parent.
+- Do not raise `workers` to go faster on a long run — oversubscription has frozen the box. Run longer, not wider.
+- Watch for `completed_mtts=N/M failures=0`. Non-zero `failures` usually means pool pressure — reduce workers and rerun.
 
 ## Live Progress
 
