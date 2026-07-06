@@ -1,0 +1,72 @@
+{
+  "name": "conf_mtt_eq_playerrange_samplecurve_icm_reraise_steal_scarebluff_cbet",
+  "type": "configured_tournament_equity",
+  "population": "configured_tournament_equity_player_range_samplecurve_scarebluff_cbet",
+  "include_tool_set_in_name": true,
+  "params": {
+    "use_preflop_spot_range": true,
+    "range_profile": "player",
+    "player_range_sample_config": {
+      "tight_start_hands": 5,
+      "tight_full_hands": 25,
+      "loose_start_hands": 25,
+      "loose_full_hands": 75,
+      "pressure_start_hands": 40,
+      "pressure_full_hands": 120,
+      "tight_multiplier": 1.10,
+      "loose_multiplier": 0.80,
+      "late_loose_multiplier": 0.65,
+      "bubble_loose_multiplier": 0.45
+    },
+    "tools": [
+      {"type": "icm_pressure", "priority": 20, "strength": 1.0, "exact_when_available": true},
+      {"type": "preflop_reraise_tightness", "priority": 30, "tightness": 0.08},
+      {"type": "button_steal", "priority": 40, "sample_quality_min": 0.5, "max_vpip": 0.3, "max_pfr": 0.16, "max_three_bet_rate": 0.08, "base_discount": 0.018, "tightness_multiplier": 0.12, "max_discount": 0.04, "requires_table_sample": true},
+      {
+        "type": "cbet_pressure",
+        "priority": 44,
+        "sample_quality_min": 0.50,
+        "min_equity": 0.42,
+        "max_payout_pressure": 0.70,
+        "min_stack_bb": 14.0,
+        "max_active_players": 2,
+        "min_spr": 1.75,
+        "threshold_discount": 0.035,
+        "max_threshold_discount": 0.060,
+        "fold_equity_weight": 0.040,
+        "min_fold_equity": 0.38,
+        "flop_size": 0.33,
+        "max_stack_fraction": 0.18,
+        "require_initiative": true,
+        "allow_position_proxy": true
+      },
+      {
+        "type": "bluff_pressure",
+        "priority": 46,
+        "mode": "force_raise",
+        "sample_quality_min": 0.35,
+        "min_fold_equity": 0.44,
+        "min_equity": 0.32,
+        "max_equity": 0.62,
+        "max_threshold_gap": 0.28,
+        "max_payout_pressure": 0.70,
+        "min_stack_bb": 6.0,
+        "max_active_players": 2,
+        "avoid_low_spr": true,
+        "min_spr": 1.35,
+        "allowed_streets": [5],
+        "river_size_min": 0.75,
+        "river_size_max": 1.00,
+        "max_stack_fraction": 0.75,
+        "required_fold_equity_safety_margin": 0.08,
+        "equity_fold_equity_credit": 0.08,
+        "max_equity_fold_equity_credit": 0.06,
+        "threshold_discount": 0.10,
+        "max_threshold_discount": 0.16,
+        "require_position_or_initiative": false,
+        "require_river_scare_card": true,
+        "min_ev_edge_pot_fraction": 0.0
+      }
+    ]
+  }
+}

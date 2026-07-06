@@ -4,3 +4,4 @@
 __pycache__/
 simulation_results*.csv
 runs/
+*.tar.gz
