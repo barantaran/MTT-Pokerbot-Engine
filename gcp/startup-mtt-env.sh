@@ -33,9 +33,10 @@ echo "--- building venv /opt/mttenv"
 /opt/mttenv/bin/pip install treys==0.1.3 numpy==1.26.4 pandas==2.2.1
 
 # 3. pokerstove native wheel — pip-installed into venv (loader imports it directly, line 21-26)
+# keep the original wheel filename: pip needs the name-version-pytag-abi-plat.whl convention
 echo "--- installing pokerstove wheel"
-gsutil cp "$WHEEL_GS" /tmp/pokerstove.whl
-/opt/mttenv/bin/pip install /tmp/pokerstove.whl
+gsutil cp "$WHEEL_GS" /tmp/
+/opt/mttenv/bin/pip install "/tmp/$(basename "$WHEEL_GS")"
 
 # 4. sanity: import + pokerstove load
 /opt/mttenv/bin/python - <<'PY'
