@@ -1,8 +1,10 @@
 import random
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Callable, Optional
 from engine.player_state import PlayerState
 from engine.table import Table
 from engine.config import config
+
+EventSink = Callable[[List[Dict[str, Any]]], None]
 
 class Tournament:
     """
@@ -79,11 +81,25 @@ class Tournament:
             # Recursive check
             self._coalesce_tables()
 
-    def play(self) -> Tuple[List[Dict[str, Any]], List[Dict]]:
+    def play(self, event_sink: Optional[EventSink] = None) -> Tuple[List[Dict[str, Any]], List[Dict]]:
         """
         Runs the tournament until 1 player remains.
         Returns (placements_list, events_list).
+
+        If ``event_sink`` is given, newly produced events are flushed to it
+        incrementally (per hand) so a durable log can be streamed as play
+        proceeds. Passing ``None`` preserves the original batch behaviour.
         """
+        flushed = 0
+
+        def _flush() -> None:
+            nonlocal flushed
+            if event_sink is not None and len(self.events) > flushed:
+                event_sink(self.events[flushed:])
+                flushed = len(self.events)
+
+        _flush()  # tournament_start + initial seat assignments
+
         max_hands = getattr(config, "max_hands_per_tournament", None)
         total_hands_played = 0
         while sum(len(t.players) for t in self.tables) > 1:
@@ -118,7 +134,9 @@ class Tournament:
                     for p in busted:
                         self.events.append({"type": "knockout", "player": p.name, "table_id": table.table_id})
                     self.placements.extend(busted)
-            
+
+                _flush()  # durable chunk per table-hand
+
             self.hands_played += 1
             total_hands_played += 1
             if self.hands_played >= config.hands_per_level:
@@ -135,7 +153,9 @@ class Tournament:
             winner = self.tables[0].players[0]
             self.placements.append(winner)
             self.events.append({"type": "tournament_win", "player": winner.name})
-             
+
+        _flush()  # final tail (level_up / table_broken / tournament_win)
+
         # Return reversed: 1st place is at 0, 2nd at 1, etc.
         self.placements.reverse()
         

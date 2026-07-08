@@ -4,10 +4,20 @@ import argparse
 import concurrent.futures
 import json
 import random
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
+
+from engine.event_log import (
+    ChunkLogWriter,
+    atomic_write_json,
+    completed_tournament_ids,
+    load_tournament_result,
+    tournament_events_dir,
+    tournament_result_path,
+)
 
 from engine.bot_factory import BOT_REGISTRY, build_configurable_bots, population_for_spec
 from engine.evolutionary_reduced_mtt import (
@@ -127,6 +137,8 @@ def _resolve_tournament_seeds(config: Mapping[str, Any], mtt_count: int) -> List
 def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
     tournament_id = int(payload["tournament_id"])
     engine_config = dict(payload["engine_config"])
+    artifact_root = payload.get("artifact_root")
+    resume_log = bool(payload.get("resume_log", False)) and artifact_root is not None
     try:
         seed = int(payload["seed"])
         _seed_everything(seed)
@@ -138,8 +150,23 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
             random.shuffle(bots)
             tournament = Tournament(bots, tournament_id=tournament_id)
-            results, events = tournament.play()
-            return {
+
+            writer = None
+            if resume_log:
+                events_dir = tournament_events_dir(artifact_root, tournament_id)
+                # Fresh run of this tournament: drop any stale partial log so
+                # chunk numbering starts clean. (Replay-based resume, added
+                # later, manages the existing log instead of wiping it.)
+                if events_dir.exists():
+                    shutil.rmtree(events_dir)
+                writer = ChunkLogWriter(events_dir)
+            try:
+                results, events = tournament.play(event_sink=writer)
+            finally:
+                if writer is not None:
+                    writer.close()
+
+            result = {
                 "tournament_id": tournament_id,
                 "seed": seed,
                 "results": results,
@@ -150,6 +177,15 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "event_count": len(events),
                 "failure": "",
             }
+            if resume_log:
+                # Completion checkpoint: full result minus bulky events (those
+                # live in the chunk log). Its presence marks this tournament
+                # done for the resume skip-set. Written only after writer.close()
+                # so all chunks are guaranteed durable first.
+                checkpoint = dict(result)
+                checkpoint["events"] = []
+                atomic_write_json(tournament_result_path(artifact_root, tournament_id), checkpoint)
+            return result
     except Exception as exc:
         return {
             "tournament_id": tournament_id,
@@ -357,6 +393,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     last_completion_at = started
     progress_interval_seconds = max(1.0, float(config.get("progress_interval_seconds", 30.0) or 30.0))
     write_events = bool(config.get("write_events", False))
+    resume_log = bool(config.get("resume_log", True))
     configured_populations = set(str(key) for key in lineup)
     use_ranges = bool(engine_config.get("fixed_bots_use_preflop_spot_range", False))
     for spec in lineup_variants:
@@ -404,10 +441,43 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
             flush=True,
         )
 
+    def _ingest_result(result: Dict[str, Any]) -> None:
+        all_results.extend(list(result.get("results", [])))
+        tournament_summaries.append(
+            {
+                "tournament_id": int(result.get("tournament_id", 0)),
+                "seed": int(result.get("seed", 0) or 0),
+                "population_summary": dict(result.get("population_summary", {})),
+                "population_action_summary": dict(result.get("action_summary", {})),
+                "stopped_max_hands": bool(result.get("stopped_max_hands", False)),
+                "event_count": int(result.get("event_count", 0)),
+            }
+        )
+        if write_events and result.get("events"):
+            event_path = artifact_root / "events" / f"tournament_{int(result.get('tournament_id', 0)):04d}_events.json"
+            _write_json(event_path, list(result.get("events", [])))
+        action_summaries.append(dict(result.get("action_summary", {})))
+
+    # Resume skip-set: any tournament with a durable completion checkpoint is
+    # loaded verbatim and not re-run. (Interrupted tournaments — a partial log
+    # but no checkpoint — are re-run fresh here; replay-based continuation is
+    # added by the --resume feature.)
+    already_done = completed_tournament_ids(artifact_root) if resume_log else {}
+    if already_done:
+        for tournament_id in sorted(already_done):
+            _ingest_result(load_tournament_result(already_done[tournament_id]))
+        print(
+            f"resume: loaded {len(already_done)} completed tournaments from {artifact_root}; "
+            f"running remaining {mtt_count - len(already_done)}",
+            flush=True,
+        )
+
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
         future_to_id = {}
         for index in range(mtt_count):
             tournament_id = index + 1
+            if tournament_id in already_done:
+                continue
             payload = {
                 "tournament_id": tournament_id,
                 "seed": tournament_seeds[index],
@@ -415,6 +485,8 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
                 "lineup_variants": lineup_variants,
                 "engine_config": engine_config,
                 "write_events": write_events,
+                "artifact_root": str(artifact_root),
+                "resume_log": resume_log,
             }
             future_to_id[executor.submit(_run_worker, payload)] = tournament_id
 
@@ -442,21 +514,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
                 if failure:
                     failures.append(f"tournament {tournament_id} failed: {failure}")
                 else:
-                    all_results.extend(list(result.get("results", [])))
-                    tournament_summaries.append(
-                        {
-                            "tournament_id": int(result.get("tournament_id", 0)),
-                            "seed": int(result.get("seed", 0) or 0),
-                            "population_summary": dict(result.get("population_summary", {})),
-                            "population_action_summary": dict(result.get("action_summary", {})),
-                            "stopped_max_hands": bool(result.get("stopped_max_hands", False)),
-                            "event_count": int(result.get("event_count", 0)),
-                        }
-                    )
-                    if write_events:
-                        event_path = artifact_root / "events" / f"tournament_{int(result.get('tournament_id', 0)):04d}_events.json"
-                        _write_json(event_path, list(result.get("events", [])))
-                    action_summaries.append(dict(result.get("action_summary", {})))
+                    _ingest_result(result)
                     last_completion_at = time.perf_counter()
                 write_partial()
                 print_progress()
