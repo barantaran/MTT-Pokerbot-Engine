@@ -455,6 +455,11 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
         mapping = {}
         for row in all_results:
             name = str(row.get("name", ""))
+            # Explicitly-named lineup entries with count==1 carry the population
+            # name verbatim (no _NNN suffix), so prefix matching alone drops them.
+            if name in configured_populations:
+                mapping[name] = name
+                continue
             for prefix in prefixes:
                 if name.startswith(prefix):
                     mapping[name] = prefix[:-1]
