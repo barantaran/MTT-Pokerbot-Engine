@@ -73,6 +73,33 @@ BOT_REGISTRY: Dict[str, BotDefinition] = {
     alias: definition for definition in BOT_DEFINITIONS for alias in definition.aliases
 }
 
+
+def register_bot(
+    cls: type,
+    *,
+    population: str,
+    aliases,
+    default_params: Mapping[str, Any] | None = None,
+    override: bool = False,
+) -> type:
+    """Register a bot class so it is resolvable by name from a run config.
+
+    Inserts a ``BotDefinition`` into ``BOT_REGISTRY`` (the dict ``_definition_for``
+    reads) under every alias. Idempotent: re-registering the same class under the
+    same aliases is a no-op. Raises on a genuine alias clash unless
+    ``override=True``. Returns ``cls`` so it can be used as a decorator.
+    """
+    definition = BotDefinition(cls, population, tuple(aliases), dict(default_params or {}))
+    for alias in definition.aliases:
+        existing = BOT_REGISTRY.get(alias)
+        if existing is not None and existing.bot_class is not cls and not override:
+            raise ValueError(
+                f"bot alias {alias!r} already registered to {existing.bot_class.__name__}; "
+                f"pass override=True to replace"
+            )
+        BOT_REGISTRY[alias] = definition
+    return cls
+
 _SPEC_KEYS = {
     "bot",
     "bot_type",
@@ -118,7 +145,7 @@ _POPULATION_NAME_ALIASES = {
 def available_bot_tools() -> Dict[str, Dict[str, Any]]:
     tools: Dict[str, Dict[str, Any]] = {}
     seen: set[type] = set()
-    for definition in BOT_DEFINITIONS:
+    for definition in dict.fromkeys(BOT_REGISTRY.values()):
         if definition.bot_class in seen:
             continue
         seen.add(definition.bot_class)

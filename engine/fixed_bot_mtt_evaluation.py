@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 import random
 import shutil
 import time
@@ -20,6 +21,7 @@ from engine.event_log import (
 )
 
 from engine.bot_factory import BOT_REGISTRY, build_configurable_bots, population_for_spec
+from engine.plugins import ENTRY_SEP as PLUGINS_ENTRY_SEP, ENV_VAR as PLUGINS_ENV_VAR, load_plugins
 from engine.evolutionary_reduced_mtt import (
     _engine_overrides,
     _seed_everything,
@@ -88,6 +90,45 @@ def _config_path(path: str | Path, *, engine_root: Path) -> Path:
     if not resolved.is_absolute():
         resolved = engine_root / resolved
     return resolved
+
+
+def _resolve_plugin_entry(entry: str, *, engine_root: Path) -> str:
+    """Anchor a plugin entry's directory to engine_root when relative.
+
+    ``dir::module`` -> the ``dir`` is resolved via _config_path so it anchors the
+    same way bot_config_dir does; ``module`` (no dir) is passed through unchanged.
+    """
+    entry = str(entry).strip()
+    if "::" in entry:
+        root, module = entry.split("::", 1)
+        resolved_root = _config_path(root.strip(), engine_root=engine_root)
+        return f"{resolved_root}::{module.strip()}"
+    return entry
+
+
+def _load_run_plugins(config: Mapping[str, Any], *, engine_root: Path) -> list[str]:
+    """Load author-private plugins for this run (parent process) and re-export the
+    merged entry set into ``MTT_PLUGINS`` so ProcessPool workers inherit it.
+
+    Merges the ``MTT_PLUGINS`` env var with the config ``plugins`` list. Returns
+    the merged, resolved entry list.
+    """
+    config_entries = [
+        _resolve_plugin_entry(entry, engine_root=engine_root)
+        for entry in (config.get("plugins", []) or [])
+    ]
+    merged = load_plugins(config_entries)
+    os.environ[PLUGINS_ENV_VAR] = PLUGINS_ENTRY_SEP.join(merged)
+    return merged
+
+
+def _worker_init() -> None:
+    """ProcessPool initializer: repopulate plugin registries in each worker.
+
+    Reads MTT_PLUGINS from the inherited environment. Needed for spawn workers
+    (in-memory registries are only inherited under fork); idempotent under fork.
+    """
+    load_plugins()
 
 
 def _expand_named_lineup(
@@ -373,6 +414,9 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     mtt_count = int(config.get("mtt_count", 200))
     workers = max(1, min(int(config.get("workers", 8)), mtt_count))
     tournament_seeds = _resolve_tournament_seeds(config, mtt_count)
+    # Load author-private bot/tool plugins before any registry lookup (the bot
+    # library / named-lineup expansion below resolves against BOT_REGISTRY).
+    _load_run_plugins(config, engine_root=engine_root)
     lineup = dict(config.get("lineup", {}))
     lineup_variants = list(config.get("lineup_variants", config.get("bot_lineup", [])) or [])
     named_lineup = list(config.get("named_lineup", []) or [])
@@ -472,7 +516,9 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
             flush=True,
         )
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=workers, initializer=_worker_init
+    ) as executor:
         future_to_id = {}
         for index in range(mtt_count):
             tournament_id = index + 1
@@ -533,6 +579,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
         "named_lineup": named_lineup,
         "bot_config_dir": config.get("bot_config_dir", ""),
         "bot_config_files": list(config.get("bot_config_files", []) or []),
+        "plugins": list(config.get("plugins", []) or []),
         "mtt_count": mtt_count,
         "workers": workers,
         "random_seed": config.get("random_seed", ""),

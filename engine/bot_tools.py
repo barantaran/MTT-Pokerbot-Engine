@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterable, Mapping, Protocol
 
@@ -1116,139 +1117,49 @@ TOOL_REGISTRY = {
 }
 
 
+def register_bot_tool(cls: type, *, override: bool = False) -> type:
+    """Register a BotTool class so it is usable from config `params.tools[]`.
+
+    Registers under both the snake-case tool type (``cls.name``) and the class
+    name (``cls.__name__``). Idempotent: re-registering the same class is a
+    no-op. Raises on a genuine key clash unless ``override=True``. Returns
+    ``cls`` so it can be used as a decorator.
+    """
+    snake = getattr(cls, "name", None)
+    pascal = cls.__name__
+    if not snake:
+        raise ValueError(f"{pascal} must define a class attr `name` (snake_case tool type)")
+    for key in (snake, pascal):
+        existing = TOOL_REGISTRY.get(key)
+        if existing is not None and existing is not cls and not override:
+            raise ValueError(
+                f"bot tool key {key!r} already registered to {existing.__name__}; "
+                f"pass override=True to replace"
+            )
+        TOOL_REGISTRY[key] = cls
+    return cls
+
+
+def _tool_param_names(cls: type) -> list[str]:
+    """Keyword param names accepted by a tool's ``__init__`` (excluding self)."""
+    signature = inspect.signature(cls.__init__)
+    return [
+        name
+        for name, param in signature.parameters.items()
+        if name != "self"
+        and param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    ]
+
+
 def available_decision_tools() -> Dict[str, Dict[str, Any]]:
-    return {
-        "icm_pressure": {
-            "class": ICMPressureTool.__name__,
-            "params": [
-                "priority",
-                "enabled",
-                "strength",
-                "exact_when_available",
-                "call_margin_weight",
-                "raise_threshold_weight",
-                "jam_threshold_weight",
-            ],
-        },
-        "preflop_reraise_tightness": {
-            "class": PreflopReraiseTightnessTool.__name__,
-            "params": ["priority", "enabled", "tightness"],
-        },
-        "table_adaptation": {
-            "class": TableAdaptationTool.__name__,
-            "params": [
-                "priority",
-                "enabled",
-                "sample_quality_min",
-                "loose_passive_vpip",
-                "loose_passive_pfr",
-                "aggressive_pfr",
-                "aggressive_three_bet_rate",
-            ],
-        },
-        "button_steal": {
-            "class": ButtonStealTool.__name__,
-            "params": [
-                "priority",
-                "enabled",
-                "sample_quality_min",
-                "max_vpip",
-                "max_pfr",
-                "max_three_bet_rate",
-                "base_discount",
-                "tightness_multiplier",
-                "max_discount",
-                "max_open_stack_fraction",
-                "max_active_players",
-                "min_stack_bb",
-                "max_payout_pressure",
-                "requires_table_sample",
-            ],
-        },
-        "endgame_conversion": {
-            "class": EndgameConversionTool.__name__,
-            "params": [
-                "priority",
-                "enabled",
-                "final_table_players",
-                "top3_players",
-                "min_stack_bb",
-                "big_stack_avg_multiplier",
-                "cover_fraction_min",
-                "raise_discount",
-                "jam_discount",
-                "call_margin_discount",
-                "top3_multiplier",
-                "heads_up_multiplier",
-                "protect_bubble",
-            ],
-        },
-        "cbet_pressure": {
-            "class": ContinuationPressureTool.__name__,
-            "params": [
-                "priority",
-                "enabled",
-                "sample_quality_min",
-                "min_equity",
-                "max_payout_pressure",
-                "min_stack_bb",
-                "max_active_players",
-                "min_spr",
-                "threshold_discount",
-                "max_threshold_discount",
-                "fold_equity_weight",
-                "min_fold_equity",
-                "flop_size",
-                "max_stack_fraction",
-                "require_initiative",
-                "allow_position_proxy",
-            ],
-        },
-        "bluff_pressure": {
-            "class": BluffPressureTool.__name__,
-            "params": [
-                "priority",
-                "enabled",
-                "sample_quality_min",
-                "min_fold_equity",
-                "min_equity",
-                "max_equity",
-                "max_threshold_gap",
-                "max_payout_pressure",
-                "min_stack_bb",
-                "max_active_players",
-                "avoid_low_spr",
-                "min_spr",
-                "allowed_streets",
-                "flop_size",
-                "turn_size",
-                "river_size_min",
-                "river_size_max",
-                "max_stack_fraction",
-                "position_bonus",
-                "initiative_bonus",
-                "require_position_or_initiative",
-                "min_ev_edge_pot_fraction",
-                "required_fold_equity_safety_margin",
-                "equity_fold_equity_credit",
-                "max_equity_fold_equity_credit",
-                "mode",
-                "threshold_discount",
-                "max_threshold_discount",
-                "leverage_max_payout_pressure",
-                "leverage_cover_fraction_min",
-                "leverage_stack_ratio_min",
-                "require_stack_advantage",
-                "stack_advantage_cover_fraction_min",
-                "stack_advantage_stack_ratio_min",
-                "require_river_scare_card",
-                "survival_payout_pressure_min",
-                "survival_max_risk_stack_fraction",
-                "survival_cover_fraction_min",
-                "survival_stack_ratio_min",
-            ],
-        },
-    }
+    catalog: Dict[str, Dict[str, Any]] = {}
+    seen: set[type] = set()
+    for cls in TOOL_REGISTRY.values():
+        if cls in seen:
+            continue
+        seen.add(cls)
+        catalog[cls.name] = {"class": cls.__name__, "params": _tool_param_names(cls)}
+    return catalog
 
 
 def build_bot_tools(specs: Iterable[Mapping[str, Any] | str] | None) -> list[BotTool]:
