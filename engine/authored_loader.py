@@ -28,22 +28,97 @@ import sys
 import types
 from pathlib import Path
 
+from treys import Card
+
 from engine.authored_api import AuthoredApi
 
 _NAMESPACE_ROOT = "authored"
 
 
+def _cards_to_str(cards):
+    """treys ints (engine-internal) -> string cards (``"As"``) the author sees.
+
+    The engine holds cards as treys ints; authored bots import nothing native, so
+    the seam decodes them here. Pass-through for anything already a string."""
+    if not cards:
+        return []
+    return [Card.int_to_str(c) if isinstance(c, int) else c for c in cards]
+
+
+def _history(events):
+    """Actions taken so far this hand, in order. Filters the engine's mixed event
+    log (``engine/table.py``) down to a stable per-action shape; board/blind/
+    showdown events are dropped — the author reads board and pot from the top
+    level, not by replaying them."""
+    if not events:
+        return []
+    out = []
+    for event in events:
+        if event.get("type") == "action":
+            out.append({
+                "player": event.get("player"),
+                "action": event.get("action"),
+                "amount": event.get("amount"),
+                "street": event.get("street"),
+                "position": event.get("position"),
+            })
+    return out
+
+
+def _normalize_state(state):
+    """Translate the engine's internal ``state`` (treys ints, flat, built for the
+    legacy bot classes in ``engine/table.py``) into the raw-facts dict authored
+    bots are promised (``docs/BOT_ARCHITECTURE.md`` — cards as strings, hero and
+    opponent grouped, stacks in chips *and* bb, action history, ``villain_hands``
+    ready for ``api``). Legacy bots never go through here; they read the internal
+    shape directly. Villains are hidden, so ``villain_hands`` is one ``None`` per
+    live opponent — the ``api`` samples them each runout."""
+    blinds = state.get("blinds") or {}
+    big = blinds.get("big", 0) or 0
+    stack = int(state.get("stack_size", 0) or 0)
+    active = int(state.get("active_players", 1) or 1)
+    return {
+        "hero": {
+            "hole": _cards_to_str(state.get("hole_cards")),
+            "stack": stack,
+            "stack_bb": stack / big if big else 0.0,
+            "position": state.get("position", ""),
+            "call_amount": int(state.get("call_amount", 0) or 0),
+            "min_raise": int(state.get("min_raise", 0) or 0),
+        },
+        "board": _cards_to_str(state.get("board_cards")),
+        "pot": int(state.get("pot_size", 0) or 0),
+        "blinds": dict(blinds),
+        "villain_hands": [None] * max(0, active - 1),
+        "opponent": {
+            "id": state.get("opponent_id", ""),
+            "position": state.get("opponent_position", ""),
+            "stack": int(state.get("opponent_stack_size", 0) or 0),
+            "stack_bb": float(state.get("opponent_stack_bb", 0.0) or 0.0),
+            "stats": state.get("opponent_stats"),
+        },
+        "history": _history(state.get("_hand_events")),
+        "tournament": {
+            "players_left": state.get("players_left"),
+            "starting_field": state.get("starting_field"),
+            "paid_places": state.get("paid_places"),
+            "payouts": dict(state.get("payouts") or {}),
+        },
+    }
+
+
 class _AuthoredBot:
     """Bridge the engine's 1-arg ``bot.get_action(game_state)`` call convention
     (``engine/player_state.py``) to the author's 2-arg module function, injecting
-    the card-math ``api``. Internal — authors never see it."""
+    the card-math ``api`` and normalizing the engine ``state`` to the author-facing
+    shape. Internal — authors never see it."""
 
     def __init__(self, fn, api):
         self.fn = fn
         self.api = api
 
     def get_action(self, game_state):
-        return self.fn(game_state, self.api)
+        return self.fn(_normalize_state(game_state), self.api)
 
 
 def _ensure_package(name: str) -> None:

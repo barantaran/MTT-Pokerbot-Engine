@@ -283,6 +283,7 @@ class Table:
                     state = {
                         "hole_cards": player.hole_cards,
                         "board_cards": board,
+                        "_hand_events": events,
                         "pot_size": self._visible_pot_size(),
                         "stack_size": player.stack,
                         "avg_table_stack": sum(p.stack for p in self.players) / max(1, len(self.players)),

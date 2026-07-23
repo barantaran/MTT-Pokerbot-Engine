@@ -87,11 +87,48 @@ get_action(state, api) -> (action, amount)
 
 ### `state` — raw facts, no strategy
 
-A plain dict of what happened, not what to do. Hole cards, board, pot, stacks in
-chips and bb, positions, the full action history this hand, and per-opponent
-stats. The engine owns card facts; the author owns every judgement made from
-them. There is no `DecisionContext`, no precomputed equity, no thresholds — those
-were the old middle layer and are gone from the self-service surface.
+A plain dict of what happened, not what to do. The engine owns card facts; the
+author owns every judgement made from them. There is no `DecisionContext`, no
+precomputed equity, no thresholds — those were the old middle layer and are gone
+from the self-service surface.
+
+The engine's internal state (treys-int cards, flat, built for the legacy bot
+classes) is translated to this author-facing shape at the seam by
+`_normalize_state` (`engine/authored_loader.py`) — the author never sees a treys
+int, and legacy bots never see this dict.
+
+```python
+state = {
+  "hero": {
+    "hole": ["As", "Kd"],   # string cards, always 2
+    "stack": 1500,          # chips
+    "stack_bb": 30.0,       # chips / big blind
+    "position": "BTN",
+    "call_amount": 100,     # chips to call (0 = can check)
+    "min_raise": 200,       # chips
+  },
+  "board": ["Qh", "Jc", "2s"],       # 0-5 string cards
+  "pot": 300,
+  "blinds": {"small": 25, "big": 50},
+  "villain_hands": [None, None],     # one per live opponent; api samples them
+  "opponent": {                      # the aggressor hero faces, if any
+    "id": "villainX", "position": "SB",
+    "stack": 900, "stack_bb": 18.0,
+    "stats": {...} or None,
+  },
+  "history": [                       # actions so far this hand, in order
+    {"player": "villainX", "action": "raise", "amount": 150,
+     "street": "preflop", "position": "SB"},
+  ],
+  "tournament": {
+    "players_left": 40, "starting_field": 100,
+    "paid_places": 15, "payouts": {...},
+  },
+}
+```
+
+`villain_hands` is exactly what `api.deal` / `api.equity` want: villains are
+hidden, so each entry is `None` and the `api` draws them from the live deck.
 
 ## The `api` — injected card math
 
