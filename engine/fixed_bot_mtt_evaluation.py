@@ -21,6 +21,8 @@ from engine.event_log import (
 )
 
 from engine.bot_factory import BOT_REGISTRY, build_configurable_bots, population_for_spec
+from engine.authored_api import AuthoredApi
+from engine.authored_loader import _AuthoredBot, load_authored_bots
 from engine.plugins import ENTRY_SEP as PLUGINS_ENTRY_SEP, ENV_VAR as PLUGINS_ENV_VAR, load_plugins
 from engine.evolutionary_reduced_mtt import (
     _engine_overrides,
@@ -59,6 +61,57 @@ def _build_bots(
     bot_specs: List[Dict[str, Any]] | None = None,
 ) -> tuple[List[Any], Dict[str, str]]:
     return build_configurable_bots(lineup, engine_config, extra_specs=bot_specs)
+
+
+# Per-worker authored-bot cache: import each nick's folder once (card math is
+# stateless, so one AuthoredApi is shared) and reuse the loaded functions across
+# every tournament this worker runs. Only the seat objects are rebuilt per MTT.
+_AUTHORED_FN_CACHE: Dict[tuple, Dict[str, Any]] = {}
+_AUTHORED_API: AuthoredApi | None = None
+
+
+def _authored_fn_map(nick: str, folder: str) -> Dict[str, Any]:
+    global _AUTHORED_API
+    key = (nick, str(folder))
+    if key not in _AUTHORED_FN_CACHE:
+        if _AUTHORED_API is None:
+            _AUTHORED_API = AuthoredApi()
+        _AUTHORED_FN_CACHE[key] = load_authored_bots(nick, folder, _AUTHORED_API)
+    return _AUTHORED_FN_CACHE[key]
+
+
+def _build_authored_bots(
+    authored_lineup: List[Mapping[str, Any]],
+) -> tuple[List[Any], Dict[str, str]]:
+    """Build seat objects for self-service authored bots.
+
+    Each row is ``{nick, bot, folder, count, population?}``. The nick's folder is
+    imported once per worker; each seat is a fresh ``_AuthoredBot`` over the shared
+    function + api, carrying a unique ``name`` so the population summaries key on
+    it just like the class-based bots.
+    """
+    bots: List[Any] = []
+    name_to_population: Dict[str, str] = {}
+    for row in authored_lineup or []:
+        nick = str(row.get("nick") or "")
+        bot_name = str(row.get("bot") or "")
+        folder = str(row.get("folder") or "")
+        count = int(row.get("count", 1) or 0)
+        if not nick or not bot_name or count <= 0:
+            continue
+        population = str(row.get("population") or f"{nick}.{bot_name}")
+        fn_map = _authored_fn_map(nick, folder)
+        if bot_name not in fn_map:
+            raise ValueError(
+                f"nick {nick!r} has no bot {bot_name!r}; bots: {sorted(fn_map)}"
+            )
+        base = fn_map[bot_name]
+        for index in range(count):
+            seat = _AuthoredBot(base.fn, base.api)
+            seat.name = population if count == 1 else f"{population}_{index + 1:03d}"
+            bots.append(seat)
+            name_to_population[seat.name] = population
+    return bots, name_to_population
 
 
 def _load_bot_library(config: Mapping[str, Any], *, engine_root: Path) -> Dict[str, Dict[str, Any]]:
@@ -189,6 +242,11 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
                 engine_config,
                 list(payload.get("lineup_variants", [])),
             )
+            authored_bots, authored_population = _build_authored_bots(
+                list(payload.get("authored_lineup", []))
+            )
+            bots.extend(authored_bots)
+            name_to_population.update(authored_population)
             random.shuffle(bots)
             tournament = Tournament(bots, tournament_id=tournament_id)
 
@@ -425,6 +483,28 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     for bot_name, count in named_legacy_lineup.items():
         lineup[bot_name] = int(lineup.get(bot_name, 0)) + int(count)
     lineup_variants.extend(named_specs)
+    # Self-service authored bots: resolve each nick's folder to an absolute path
+    # here (parent) so workers import it without re-deriving engine_root. Default
+    # is plugins/<nick> under engine_root; an explicit folder is anchored the same
+    # way bot_config_dir is.
+    authored_lineup: List[Dict[str, Any]] = []
+    for row in config.get("authored_lineup", []) or []:
+        nick = str(row.get("nick") or "")
+        bot_name = str(row.get("bot") or "")
+        count = int(row.get("count", 1) or 0)
+        if not nick or not bot_name or count <= 0:
+            continue
+        raw_folder = row.get("folder") or (Path("plugins") / nick)
+        folder = _config_path(raw_folder, engine_root=engine_root)
+        authored_lineup.append(
+            {
+                "nick": nick,
+                "bot": bot_name,
+                "folder": str(folder),
+                "count": count,
+                "population": str(row.get("population") or f"{nick}.{bot_name}"),
+            }
+        )
     engine_config = default_engine_config()
     engine_config.update(dict(config.get("engine", {})))
 
@@ -439,6 +519,8 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     write_events = bool(config.get("write_events", False))
     resume_log = bool(config.get("resume_log", True))
     configured_populations = set(str(key) for key in lineup)
+    for row in authored_lineup:
+        configured_populations.add(str(row["population"]))
     use_ranges = bool(engine_config.get("fixed_bots_use_preflop_spot_range", False))
     for spec in lineup_variants:
         spec_type = str(spec.get("type") or spec.get("bot") or spec.get("bot_type") or spec.get("class") or "")
@@ -534,6 +616,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
                 "seed": tournament_seeds[index],
                 "lineup": lineup,
                 "lineup_variants": lineup_variants,
+                "authored_lineup": authored_lineup,
                 "engine_config": engine_config,
                 "write_events": write_events,
                 "artifact_root": str(artifact_root),

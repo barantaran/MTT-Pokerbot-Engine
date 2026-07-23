@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import itertools
 import random
@@ -606,7 +607,13 @@ def _estimate_equity_cached(hero_cards, board, active_players, iterations, range
     range_hands = None if range_pct >= 0.999 else _range_filtered_hands(available_cards, range_pct)
     hero_hand = _CARD_SET("".join(hero_cards))
 
-    rng = random.Random()
+    # Seed deterministically from the call args so the same spot yields the same
+    # estimate in every worker and on every SPOT resume (README promises "same
+    # seed -> identical result"). builtin hash() is salted per process, so digest
+    # a stable repr instead.
+    seed_key = repr((hero_cards, board, active_players, iterations, range_pct)).encode()
+    seed = int.from_bytes(hashlib.sha256(seed_key).digest()[:8], "big")
+    rng = random.Random(seed)
     hero_equity = 0.0
 
     for _ in range(iterations):
