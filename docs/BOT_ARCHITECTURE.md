@@ -128,6 +128,52 @@ folder**. Everything else is denied statically, before the file is ever run:
   allowlist for pure numerics.
 - Card math and randomness come through the injected `api` only.
 
+## Loading and namespacing
+
+How a dynamic list of authored bots is imported and called, per MTT.
+
+**Import happens once per worker process, not per MTT.** A run uses a
+`ProcessPool`; each worker, at init, loads every nick's bot module and its
+sibling tools, then caches them in `sys.modules`. Per tournament, only the *bot
+objects* are rebuilt (fresh table state) — the imported `get_action` is reused,
+and the `api` is built once per worker (card math is stateless).
+
+**The call is unchanged.** The engine holds a bot object and calls
+`bot.get_action(game_state)` (`engine/player_state.py`). The author's two-arg
+function reaches that one-arg method through a thin adapter that injects `api`:
+
+```python
+class _AuthoredBot:
+    def __init__(self, fn, api): self.fn, self.api = fn, api
+    def get_action(self, game_state): return self.fn(game_state, self.api)
+```
+
+The adapter is internal; authors never see it.
+
+**Per-nick namespacing is required because a duel puts two nicks in one
+process.** Both seats of a 2-max table live in the same worker, so if nick A and
+nick B both ship `shove_short.py`, a bare `import shove_short` would collide in
+the global `sys.modules` — one would shadow the other.
+
+The loader prevents this: each nick's folder is loaded as a **private module
+namespace** (e.g. `authored.<nick>.*`) so a bare sibling import inside nick A
+resolves to nick A's tool, and nick B's identically-named file is a different
+module. The author writes bare imports (`from shove_short import shove_short`);
+the loader — not the author — guarantees they resolve to the author's own folder
+and nowhere else.
+
+**Responsibility split:**
+
+| owner | responsible for |
+|---|---|
+| author | *which* tools to import and calling them right — names a real sibling, uses it correctly |
+| engine / loader | *making* a correct sibling import resolve — nick folder is the import root, isolated from other nicks; author never touches `sys.path` or packaging |
+| validator | *catching* mistakes before a match — a non-sibling import (`engine`, `os`, another nick) or a missing sibling fails at `POST /validate`, not mid-hand |
+
+A consequence, made mechanical: an author **cannot** import another author's tool.
+Reuse is within a nick only — the "per-nick private toolbox" rule enforced by the
+namespace, not by author discipline.
+
 ## Why validation is static-only
 
 `POST /validate` (and the whole public Cloud Run service) **never imports or
