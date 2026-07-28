@@ -64,6 +64,45 @@ class BotTool(Protocol):
         ...
 
 
+def derive_avg_table_stack(game_state: Mapping[str, Any]) -> float:
+    """Mean positive stack at the table, from ``table_stacks``. 0.0 if unknown."""
+    table_stacks = game_state.get("table_stacks")
+    if not isinstance(table_stacks, list) or not table_stacks:
+        return 0.0
+    stacks = []
+    for raw_stack in table_stacks:
+        try:
+            stack = float(raw_stack)
+        except (TypeError, ValueError):
+            continue
+        if stack > 0:
+            stacks.append(stack)
+    return sum(stacks) / len(stacks) if stacks else 0.0
+
+
+def derive_itm_distance(game_state: Mapping[str, Any]) -> float:
+    """Normalized distance to the money: 0.0 at ITM, 1.0 at full field or unknown."""
+    paid_places = int(game_state.get("paid_places", 0) or 0)
+    if paid_places <= 0:
+        return 1.0
+    players_left = int(game_state.get("players_left", 0) or 0)
+    starting_field = int(game_state.get("starting_field", 0) or 0)
+    return max(0.0, (players_left - paid_places) / max(1, starting_field - paid_places))
+
+
+def derive_next_prize_gain_pct(game_state: Mapping[str, Any]) -> float:
+    """Prize-share gain of the next bustout, from ``payouts`` keyed by finish place."""
+    players_left = int(game_state.get("players_left", 0) or 0)
+    if players_left <= 1:
+        return 0.0
+    payouts = game_state.get("payouts")
+    if not isinstance(payouts, dict):
+        return 0.0
+    current_prize = float(payouts.get(players_left, 0.0) or 0.0)
+    next_prize = float(payouts.get(players_left - 1, 0.0) or 0.0)
+    return max(0.0, next_prize - current_prize)
+
+
 class ICMPressureTool:
     name = "icm_pressure"
 
@@ -159,7 +198,7 @@ class ICMPressureTool:
 
     def _fallback_icm_pressure(self, game_state: Mapping[str, Any]) -> float:
         heuristic = self._heuristic_payout_pressure(game_state)
-        itm_distance = max(0.0, min(1.0, float(game_state.get("itm_distance", 1.0) or 0.0)))
+        itm_distance = max(0.0, min(1.0, derive_itm_distance(game_state)))
         players_left = int(game_state.get("players_left", 0) or 0)
         paid_places = int(game_state.get("paid_places", 0) or 0)
 
@@ -169,7 +208,7 @@ class ICMPressureTool:
         return max(0.0, min(1.0, pressure))
 
     def _heuristic_payout_pressure(self, game_state: Mapping[str, Any]) -> float:
-        next_prize_gain = max(0.0, float(game_state.get("next_prize_gain_pct", 0.0) or 0.0))
+        next_prize_gain = max(0.0, derive_next_prize_gain_pct(game_state))
         players_left = int(game_state.get("players_left", 0) or 0)
         paid_places = int(game_state.get("paid_places", 0) or 0)
         if paid_places <= 0 or players_left <= 0:
@@ -431,9 +470,7 @@ class EndgameConversionTool:
     def _has_stack_leverage(self, context: DecisionContext, game_state: Mapping[str, Any]) -> bool:
         if self._cover_fraction(context, game_state) >= self.cover_fraction_min:
             return True
-        avg_stack = self._float(game_state.get("avg_table_stack"))
-        if avg_stack <= 0:
-            avg_stack = self._average_table_stack(game_state)
+        avg_stack = derive_avg_table_stack(game_state)
         if avg_stack <= 0:
             return False
         return context.stack_size >= avg_stack * self.big_stack_avg_multiplier
@@ -457,14 +494,6 @@ class EndgameConversionTool:
         if opponents <= 0:
             return 0.0
         return covered / float(opponents)
-
-    def _average_table_stack(self, game_state: Mapping[str, Any]) -> float:
-        table_stacks = game_state.get("table_stacks")
-        if not isinstance(table_stacks, list) or not table_stacks:
-            return 0.0
-        stacks = [self._float(stack) for stack in table_stacks]
-        stacks = [stack for stack in stacks if stack > 0]
-        return sum(stacks) / len(stacks) if stacks else 0.0
 
     def _int(self, value: Any, default: int = 0) -> int:
         try:
@@ -845,9 +874,7 @@ class BluffPressureTool:
             return False
         if self._cover_fraction(context, game_state) >= self.leverage_cover_fraction_min:
             return True
-        avg_stack = self._float(game_state.get("avg_table_stack"))
-        if avg_stack <= 0:
-            avg_stack = self._average_table_stack(game_state)
+        avg_stack = derive_avg_table_stack(game_state)
         if avg_stack <= 0:
             return False
         return context.stack_size >= avg_stack * self.leverage_stack_ratio_min
@@ -864,9 +891,7 @@ class BluffPressureTool:
             return False
         if self._cover_fraction(context, game_state) >= self.survival_cover_fraction_min:
             return False
-        avg_stack = self._float(game_state.get("avg_table_stack"))
-        if avg_stack <= 0:
-            avg_stack = self._average_table_stack(game_state)
+        avg_stack = derive_avg_table_stack(game_state)
         if avg_stack > 0 and context.stack_size >= avg_stack * self.survival_stack_ratio_min:
             return False
         return True
@@ -874,9 +899,7 @@ class BluffPressureTool:
     def _has_stack_advantage(self, context: DecisionContext, game_state: Mapping[str, Any]) -> bool:
         if self._cover_fraction(context, game_state) >= self.stack_advantage_cover_fraction_min:
             return True
-        avg_stack = self._float(game_state.get("avg_table_stack"))
-        if avg_stack <= 0:
-            avg_stack = self._average_table_stack(game_state)
+        avg_stack = derive_avg_table_stack(game_state)
         if avg_stack <= 0:
             return False
         return context.stack_size >= avg_stack * self.stack_advantage_stack_ratio_min
@@ -900,14 +923,6 @@ class BluffPressureTool:
         if opponents <= 0:
             return 0.0
         return covered / float(opponents)
-
-    def _average_table_stack(self, game_state: Mapping[str, Any]) -> float:
-        table_stacks = game_state.get("table_stacks")
-        if not isinstance(table_stacks, list) or not table_stacks:
-            return 0.0
-        stacks = [self._float(stack) for stack in table_stacks]
-        stacks = [stack for stack in stacks if stack > 0]
-        return sum(stacks) / len(stacks) if stacks else 0.0
 
     def _has_river_scare_card(self, context: DecisionContext, game_state: Mapping[str, Any]) -> bool:
         if context.street != 5:

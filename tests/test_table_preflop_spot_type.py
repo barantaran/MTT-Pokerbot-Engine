@@ -1,5 +1,6 @@
 import unittest
 
+from engine.bot_tools import derive_next_prize_gain_pct
 from engine.player_state import PlayerState
 from engine.table import (
     PREFLOP_SPOT_ALL_IN_PRESSURE,
@@ -294,24 +295,20 @@ class TablePreflopSpotTypeTests(unittest.TestCase):
         )
 
     def test_next_prize_gain_uses_next_bustout_pay_jump(self):
-        table = self._table()
-        table.players_left = 10
-        table.payouts = {
-            9: 0.012,
-            10: 0.0,
+        game_state = {
+            "players_left": 10,
+            "payouts": {9: 0.012, 10: 0.0},
         }
 
-        self.assertEqual(table._next_prize_gain_pct(), 0.012)
+        self.assertEqual(derive_next_prize_gain_pct(game_state), 0.012)
 
     def test_next_prize_gain_is_zero_without_pay_jump(self):
-        table = self._table()
-        table.players_left = 12
-        table.payouts = {
-            9: 0.012,
-            10: 0.0,
+        game_state = {
+            "players_left": 12,
+            "payouts": {9: 0.012, 10: 0.0},
         }
 
-        self.assertEqual(table._next_prize_gain_pct(), 0.0)
+        self.assertEqual(derive_next_prize_gain_pct(game_state), 0.0)
 
 
 if __name__ == "__main__":

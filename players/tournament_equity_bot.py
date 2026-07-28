@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from engine.bot_tools import DecisionContext, build_bot_tools
+from engine.bot_tools import (
+    DecisionContext,
+    build_bot_tools,
+    derive_itm_distance,
+    derive_next_prize_gain_pct,
+)
 from engine.icm import calculate_exact_icm
 from engine.player_interface import Bot
 from engine.pokerstove_equity import estimate_equity, pot_odds
@@ -96,7 +101,7 @@ class TournamentEquityBot(Bot):
                 players_left=game_state.get("players_left"),
                 starting_field=game_state.get("starting_field"),
                 paid_places=game_state.get("paid_places"),
-                itm_distance=game_state.get("itm_distance"),
+                itm_distance=derive_itm_distance(game_state),
                 range_influence=self.range_influence,
                 player_range_sampling=self.player_range_sampling,
                 player_range_sample_config=self.player_range_sample_config,
@@ -377,7 +382,7 @@ class TournamentEquityBot(Bot):
         return 2.3
 
     def _payout_pressure(self, game_state):
-        next_prize_gain = max(0.0, float(game_state.get("next_prize_gain_pct", 0.0) or 0.0))
+        next_prize_gain = max(0.0, derive_next_prize_gain_pct(game_state))
         players_left = int(game_state.get("players_left", 0) or 0)
         paid_places = int(game_state.get("paid_places", 0) or 0)
         if paid_places <= 0 or players_left <= 0:
@@ -546,7 +551,7 @@ class TournamentICMEquityBot(TournamentEquityBot):
 
     def _fallback_icm_pressure(self, game_state):
         heuristic = super()._payout_pressure(game_state)
-        itm_distance = max(0.0, min(1.0, float(game_state.get("itm_distance", 1.0) or 0.0)))
+        itm_distance = max(0.0, min(1.0, derive_itm_distance(game_state)))
         players_left = int(game_state.get("players_left", 0) or 0)
         paid_places = int(game_state.get("paid_places", 0) or 0)
 

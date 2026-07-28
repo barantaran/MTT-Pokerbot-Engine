@@ -239,14 +239,6 @@ class Table:
             return PREFLOP_SPOT_SRP
         return self.current_preflop_spot_type
 
-    def _next_prize_gain_pct(self) -> float:
-        players_left = self.players_left or len(self.players)
-        if players_left <= 1:
-            return 0.0
-        current_prize = float(self.payouts.get(players_left, 0.0) or 0.0)
-        next_prize = float(self.payouts.get(players_left - 1, 0.0) or 0.0)
-        return max(0.0, next_prize - current_prize)
-
     def _betting_round(self, blinds: Dict[str, int], board: List[int], pot_manager: PotManager, start_idx: int, current_highest_bet: int, events: List[Dict]):
         if self._players_who_can_act() <= 1 and all(p.current_bet == current_highest_bet for p in self.players if p.is_active and not p.is_all_in):
             return # No betting round needed if only 1 can act and they match the highest bet
@@ -286,7 +278,6 @@ class Table:
                         "_hand_events": events,
                         "pot_size": self._visible_pot_size(),
                         "stack_size": player.stack,
-                        "avg_table_stack": sum(p.stack for p in self.players) / max(1, len(self.players)),
                         "table_stacks": [p.stack for p in self.players],
                         "hero_table_index": idx,
                         "call_amount": call_amount,
@@ -297,8 +288,6 @@ class Table:
                         "starting_field": self.starting_field or len(self.players),
                         "paid_places": self.paid_places,
                         "payouts": dict(self.payouts),
-                        "itm_distance": max(0.0, ((self.players_left or len(self.players)) - self.paid_places) / max(1, (self.starting_field or len(self.players)) - self.paid_places)) if self.paid_places else 1.0,
-                        "next_prize_gain_pct": self._next_prize_gain_pct(),
                         "player_id": player.name,
                         "table_id": self.table_id,
                         "hand_id": self.hand_id,

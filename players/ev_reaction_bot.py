@@ -1,5 +1,6 @@
 from math import sqrt
 
+from engine.bot_tools import derive_next_prize_gain_pct
 from engine.player_interface import Bot
 from engine.pokerstove_equity import estimate_equity
 
@@ -360,7 +361,7 @@ class EVFormulaBot(EVReactionBot):
         state = game_state or {}
         players_left = int(state.get("players_left", 0) or 0)
         paid_places = int(state.get("paid_places", 0) or 0)
-        next_prize_gain = max(0.0, float(state.get("next_prize_gain_pct", 0.0) or 0.0))
+        next_prize_gain = max(0.0, derive_next_prize_gain_pct(state))
 
         pressure = 1.0
         if paid_places > 0 and players_left > 0:

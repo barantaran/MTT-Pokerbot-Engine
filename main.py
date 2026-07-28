@@ -20,6 +20,7 @@ ALLOWED_MODULES = {
     'engine.openai_bot_support',
     'engine.pokerstove_equity',
     'engine.icm',
+    'engine.bot_tools',
 }
 
 def load_bots(players_dir="players"):

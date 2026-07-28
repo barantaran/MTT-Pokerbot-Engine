@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from engine.bot_tools import derive_itm_distance, derive_next_prize_gain_pct
 from engine.icm import calculate_exact_icm
 from engine.player_interface import Bot
 from engine.pokerstove_equity import estimate_equity, pot_odds
@@ -297,8 +298,8 @@ class ICMTightBot(Bot):
     def _fallback_pressure(self, game_state):
         players_left = int(game_state.get("players_left", 0) or 0)
         paid_places = int(game_state.get("paid_places", 0) or 0)
-        itm_distance = max(0.0, min(1.0, float(game_state.get("itm_distance", 1.0) or 0.0)))
-        next_prize_gain = max(0.0, float(game_state.get("next_prize_gain_pct", 0.0) or 0.0))
+        itm_distance = max(0.0, min(1.0, derive_itm_distance(game_state)))
+        next_prize_gain = max(0.0, derive_next_prize_gain_pct(game_state))
 
         pressure = 0.0
         if paid_places > 0 and players_left > 0:

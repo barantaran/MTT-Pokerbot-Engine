@@ -20,8 +20,6 @@ def state(**overrides):
         "players_left": 50,
         "starting_field": 200,
         "paid_places": 30,
-        "itm_distance": 0.15,
-        "next_prize_gain_pct": 0.0,
     }
     base.update(overrides)
     return base
@@ -62,8 +60,7 @@ def test_icm_tight_bot_fallback_icm_pressure_folds_marginal_bubble_call():
             hero_equity=0.43,
             players_left=31,
             paid_places=30,
-            itm_distance=0.01,
-            next_prize_gain_pct=0.02,
+            payouts={31: 0.0, 30: 0.02},
         )
     )
 
@@ -83,7 +80,6 @@ def test_icm_tight_bot_exact_icm_pressure_folds_marginal_final_table_call():
             table_stacks=[1000, 1000, 120],
             hero_table_index=2,
             payouts={1: 0.65, 2: 0.35},
-            itm_distance=0.0,
         )
     )
 

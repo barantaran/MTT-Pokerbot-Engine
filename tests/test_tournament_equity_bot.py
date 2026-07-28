@@ -26,7 +26,6 @@ def state(**overrides):
         "players_left": 50,
         "starting_field": 200,
         "paid_places": 30,
-        "next_prize_gain_pct": 0.0,
         "preflop_spot_type": "unknown",
         "position": "HJ",
     }
@@ -59,7 +58,6 @@ class TournamentEquityBotTests(unittest.TestCase):
                     opponent_stack_bb=12,
                     players_left=31,
                     paid_places=30,
-                    itm_distance=0.01,
                 )
             )
 
@@ -186,7 +184,7 @@ class TournamentEquityBotTests(unittest.TestCase):
                 hero_equity=0.39,
                 players_left=31,
                 paid_places=30,
-                next_prize_gain_pct=0.02,
+                payouts={31: 0.0, 30: 0.02},
             )
         )
 
@@ -304,8 +302,7 @@ class TournamentEquityBotTests(unittest.TestCase):
             call_amount=0,
             players_left=31,
             paid_places=30,
-            itm_distance=0.01,
-            next_prize_gain_pct=0.02,
+            payouts={31: 0.0, 30: 0.02},
         ))
 
         self.assertEqual(action, ("call", 0))
@@ -345,8 +342,7 @@ class TournamentEquityBotTests(unittest.TestCase):
                 hero_equity=0.39,
                 players_left=31,
                 paid_places=30,
-                itm_distance=0.01,
-                next_prize_gain_pct=0.02,
+                payouts={31: 0.0, 30: 0.02},
             )
         )
 
@@ -371,7 +367,6 @@ class TournamentEquityBotTests(unittest.TestCase):
                     table_stacks=[1000, 1000, 120],
                     hero_table_index=2,
                     payouts={1: 0.65, 2: 0.35},
-                    itm_distance=0.0,
                 )
             )
 
@@ -456,8 +451,7 @@ class TournamentEquityBotTests(unittest.TestCase):
                 hero_equity=0.39,
                 players_left=31,
                 paid_places=30,
-                itm_distance=0.01,
-                next_prize_gain_pct=0.02,
+                payouts={31: 0.0, 30: 0.02},
             )
         )
 
@@ -1022,7 +1016,7 @@ class TournamentEquityBotTests(unittest.TestCase):
 
     def test_bluff_pressure_allows_high_payout_pressure_with_stack_leverage(self):
         bot = ConfiguredTournamentEquityBot(tools=[
-            {"type": "icm_pressure"},
+            {"type": "icm_pressure", "exact_when_available": False},
             {
                 "type": "bluff_pressure",
                 "max_threshold_gap": 0.12,
@@ -1041,7 +1035,8 @@ class TournamentEquityBotTests(unittest.TestCase):
             position="BTN",
             preflop_spot_type="srp",
             active_players=2,
-            next_prize_gain_pct=0.175,
+            starting_field=50,
+            payouts={50: 0.0, 49: 0.175},
             hero_table_index=0,
             table_stacks=[2000, 1200, 1700, 2600],
             table_stats={
@@ -1058,7 +1053,7 @@ class TournamentEquityBotTests(unittest.TestCase):
 
     def test_bluff_pressure_rejects_high_payout_pressure_without_stack_leverage(self):
         bot = ConfiguredTournamentEquityBot(tools=[
-            {"type": "icm_pressure"},
+            {"type": "icm_pressure", "exact_when_available": False},
             {
                 "type": "bluff_pressure",
                 "max_threshold_gap": 0.12,
@@ -1077,7 +1072,7 @@ class TournamentEquityBotTests(unittest.TestCase):
             position="BTN",
             preflop_spot_type="srp",
             active_players=2,
-            next_prize_gain_pct=0.175,
+            payouts={50: 0.0, 49: 0.175},
             hero_table_index=0,
             table_stacks=[1200, 1600, 1800, 2200],
             table_stats={
@@ -1129,7 +1124,7 @@ class TournamentEquityBotTests(unittest.TestCase):
             position="BTN",
             preflop_spot_type="srp",
             active_players=2,
-            next_prize_gain_pct=0.12,
+            payouts={50: 0.0, 49: 0.12},
             hero_table_index=0,
             table_stacks=[3000, 3600, 3300, 2700],
             table_stats={
@@ -1181,7 +1176,7 @@ class TournamentEquityBotTests(unittest.TestCase):
             position="BTN",
             preflop_spot_type="srp",
             active_players=2,
-            next_prize_gain_pct=0.12,
+            payouts={50: 0.0, 49: 0.12},
             hero_table_index=0,
             table_stacks=[5000, 3600, 3300, 2700],
             table_stats={

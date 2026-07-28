@@ -251,7 +251,7 @@ def test_ev_formula_bot_can_disable_tournament_chip_cost_for_raw_chip_ev():
         call_amount=500,
         stack_size=1000,
         big_blind=100,
-        game_state={"players_left": 31, "paid_places": 30, "next_prize_gain_pct": 0.02},
+        game_state={"players_left": 31, "paid_places": 30, "payouts": {31: 0.0, 30: 0.02}},
     )
 
     assert call_ev == 100.0
@@ -270,7 +270,7 @@ def test_ev_formula_bot_tournament_chip_cost_tightens_high_risk_bubble_call():
         "active_players": 2,
         "players_left": 31,
         "paid_places": 30,
-        "next_prize_gain_pct": 0.02,
+        "payouts": {31: 0.0, 30: 0.02},
         "board_cards": [1, 2, 3, 4],
     })
 
