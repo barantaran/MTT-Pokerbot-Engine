@@ -59,8 +59,9 @@ Each turn, `Table` builds a rich `state` dict (`table.py:280-318`) containing:
 - position label (`_position_label`, `table.py:466`);
 - preflop spot classification (`_preflop_spot_type`, `table.py:198`):
   `limped / srp / three_bet / four_bet / five_bet_plus / all_in_pressure`;
-- ICM context: `payouts`, `players_left`, `itm_distance`,
-  `next_prize_gain_pct` (`table.py:296-297`);
+- ICM context: `payouts`, `players_left`, `paid_places`, `starting_field`
+  (derived measures like ITM distance and next-prize gain live in
+  `engine/bot_tools.py` `derive_*` helpers, not in the state dict);
 - table stats snapshot from `TableStatsTracker`.
 
 The bot's `get_action` is called under a per-decision timeout
@@ -222,7 +223,7 @@ Key constructor params (`tournament_equity_bot.py:35-59`):
 - tools: `icm_pressure` + `preflop_reraise` + `button_steal` +
   `bluff_pressure` (river scare-card forced bluff).
 
-Latest exploit benchmarks (`PHASE164_165_EXPLOIT_BATCH_RESULTS.md`, 600
+Latest exploit benchmarks (`history/PHASE164_165_EXPLOIT_BATCH_RESULTS.md`, 600
 entries per matchup): **ROI +99.8 % vs call station, +90.9 % vs 3-bet maniac.**
 
 Champion evolution across phase runs:
