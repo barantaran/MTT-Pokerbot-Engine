@@ -73,6 +73,23 @@ class ResumeLogTests(unittest.TestCase):
             self.assertEqual(rep2["population_summary"], rep1["population_summary"])
             self.assertEqual(rep2["population_action_summary"], rep1["population_action_summary"])
 
+    def test_the_durable_log_carries_the_replay_schema(self):
+        """The chunk log is what the replay exporter reads, so assert its shape
+        on the real written artifact, not just on Table's in-memory output."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "run"
+            run_fixed_bot_evaluation(_config(root), engine_root=Path("."))
+
+            events = read_event_log(tournament_events_dir(root, 1))
+            self.assertGreater(len(events), 0)
+            for event in events:
+                if "hand_id" not in event:
+                    continue  # tournament-scope event
+                for key in ("table_id", "tournament_id", "seq"):
+                    self.assertIn(key, event, event)
+                for card in event.get("cards", []):
+                    self.assertIsInstance(card, str, event)
+
     def test_interrupted_mtt_reruns_from_scratch(self):
         """A tournament with a partial log but no checkpoint is re-run fresh;
         completed tournaments are skipped. Re-run is deterministic (same seed),

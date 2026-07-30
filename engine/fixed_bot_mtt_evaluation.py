@@ -654,7 +654,8 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
                 print_progress()
 
     tournament_summaries.sort(key=lambda row: int(row.get("tournament_id", 0)))
-    population_summary = summarize_population_results(all_results, name_to_population_from_results())
+    name_to_population = name_to_population_from_results()
+    population_summary = summarize_population_results(all_results, name_to_population)
     population_action_summary = merge_candidate_action_summaries(action_summaries)
     report = {
         "run_id": run_id,
@@ -665,6 +666,10 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
         "lineup": lineup,
         "lineup_variants": lineup_variants,
         "named_lineup": named_lineup,
+        # Seat name -> population. Derived here from the results; persisting it
+        # means a downstream consumer (the replay exporter) never has to
+        # re-derive the "<population>" / "<population>_NNN" naming rule.
+        "name_to_population": name_to_population,
         "bot_config_dir": config.get("bot_config_dir", ""),
         "bot_config_files": list(config.get("bot_config_files", []) or []),
         "plugins": list(config.get("plugins", []) or []),
