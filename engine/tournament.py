@@ -45,9 +45,18 @@ class Tournament:
             table.payouts = dict(config.payouts)
             for p in table_players:
                 table.add_player(p)
-                self.events.append({"type": "seat", "player": p.name, "table_id": table_id})
+                self.events.append(self._seat_event(p.name, table_id, len(table.players) - 1))
             self.tables.append(table)
             table_id += 1
+
+    def _seat_event(self, player_name: str, table_id: int, seat: int) -> Dict[str, Any]:
+        return {
+            "type": "seat",
+            "tournament_id": self.tournament_id,
+            "table_id": table_id,
+            "player": player_name,
+            "seat": seat,
+        }
 
     def _coalesce_tables(self):
         """
@@ -69,14 +78,20 @@ class Tournament:
             table_to_break = tables_sorted[0]
             
             self.tables.remove(table_to_break)
-            self.events.append({"type": "table_broken", "table_id": table_to_break.table_id})
+            self.events.append({
+                "type": "table_broken",
+                "tournament_id": self.tournament_id,
+                "table_id": table_to_break.table_id,
+            })
 
             # Distribute players
             for player in table_to_break.players:
                 # Find table with most seats available
                 target_table = min(self.tables, key=lambda t: len(t.players))
                 target_table.add_player(player)
-                self.events.append({"type": "seat", "player": player.name, "table_id": target_table.table_id})
+                self.events.append(self._seat_event(
+                    player.name, target_table.table_id, len(target_table.players) - 1
+                ))
                 
             # Recursive check
             self._coalesce_tables()
@@ -133,7 +148,18 @@ class Tournament:
                 # Busted players
                 if busted:
                     for p in busted:
-                        self.events.append({"type": "knockout", "player": p.name, "table_id": table.table_id})
+                        self.events.append({
+                            "type": "knockout",
+                            "tournament_id": self.tournament_id,
+                            "table_id": table.table_id,
+                            "player": p.name,
+                            # Placements accumulate in bust order and are reversed
+                            # at the end, so the Nth player out finishes Nth from
+                            # the bottom of the starting field.
+                            "finish_position": self.starting_field - (
+                                len(self.placements) + busted.index(p)
+                            ),
+                        })
                     self.placements.extend(busted)
 
                 _flush()  # durable chunk per table-hand
@@ -145,7 +171,12 @@ class Tournament:
                 if self.current_blind_idx < len(config.blinds_schedule) - 1:
                     self.current_blind_idx += 1
                     new_blinds = config.blinds_schedule[self.current_blind_idx]
-                    self.events.append({"type": "level_up", "blinds": new_blinds})
+                    self.events.append({
+                        "type": "level_up",
+                        "tournament_id": self.tournament_id,
+                        "level": self.current_blind_idx + 1,
+                        "blinds": new_blinds,
+                    })
                     
             self._coalesce_tables()
             
@@ -153,7 +184,11 @@ class Tournament:
         if sum(len(t.players) for t in self.tables) == 1 and self.tables and self.tables[0].players:
             winner = self.tables[0].players[0]
             self.placements.append(winner)
-            self.events.append({"type": "tournament_win", "player": winner.name})
+            self.events.append({
+                "type": "tournament_win",
+                "tournament_id": self.tournament_id,
+                "player": winner.name,
+            })
 
         _flush()  # final tail (level_up / table_broken / tournament_win)
 
