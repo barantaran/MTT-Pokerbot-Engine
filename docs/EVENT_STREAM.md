@@ -181,6 +181,20 @@ from the bets, not from the awards.
 **before** busted players are removed from the table, so a player at 0 is still
 listed. That is how you detect a bust from the stream alone.
 
+## Known bugs
+
+- **A negative `action.amount` is possible.** `_betting_round` returns early
+  when at most one player can act, and that early return happens *before* the
+  end-of-round `current_bet = 0` reset. The stale per-street bet then survives
+  into the next street, where `call_amount = current_highest_bet -
+  player.current_bet` can come out negative and `PlayerState.bet` deducts a
+  negative amount — handing chips back and shrinking the pot.
+
+  Reproduces reliably heads-up when the small blind is all in for less than the
+  big blind: the short stack wins back only its own blind instead of doubling.
+  Any consumer summing `amount` must expect this. The replay exporter flags such
+  hands in `anomalies` rather than hiding them.
+
 ## Known quirks, deliberately unfixed
 
 - **Heads-up positions** — the button posts the big blind (see `hand_start`).

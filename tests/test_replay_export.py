@@ -276,6 +276,20 @@ class ReplayExportGuardTests(unittest.TestCase):
                 out_root=Path("/nonexistent/out"),
             )
 
+    def test_a_negative_action_amount_is_flagged_not_hidden(self):
+        # engine/table.py can emit a negative call amount when a betting round
+        # early-returns without resetting current_bet (docs/EVENT_STREAM.md).
+        # The exporter must stay faithful and say so.
+        events = _minimal_hand_events()
+        events[3]["amount"] = -200
+        hand = build_hand(events)
+        self.assertTrue(hand["anomalies"])
+        self.assertIn("negative amount -200", hand["anomalies"][0])
+        self.assertEqual(redact(hand, ["hero"])["anomalies"], hand["anomalies"])
+
+    def test_a_clean_hand_has_no_anomalies(self):
+        self.assertEqual(build_hand(_minimal_hand_events())["anomalies"], [])
+
     def test_truncation_keeps_the_biggest_swings_and_says_so(self):
         hero = replay_export.HeroSlice("h", cap=2)
         for net in (5, 100, 1, 50):
@@ -291,7 +305,11 @@ class ReplayExportGuardTests(unittest.TestCase):
 
 
 def _hand_with_tool_events():
-    events = [
+    return build_hand(_minimal_hand_events())
+
+
+def _minimal_hand_events():
+    return [
         {"type": "hand_start", "seq": 0, "table_id": 1, "hand_id": 1, "tournament_id": 1,
          "level": 1, "blinds": {"small": 10, "big": 20}, "button_seat": 0,
          "started_at": "2026-01-01T00:00:00+00:00",
@@ -311,7 +329,6 @@ def _hand_with_tool_events():
          "ended_at": "2026-01-01T00:00:01+00:00",
          "players": [{"name": "hero", "stack": 100}, {"name": "villain", "stack": 100}]},
     ]
-    return build_hand(events)
 
 
 def _hand_record_with_net(net):

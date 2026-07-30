@@ -172,6 +172,10 @@ def build_hand(events: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         "payouts": [],
         "pot_total": 0,
         "awarded_total": 0,
+        # Non-empty when the source events do not describe a coherent hand. The
+        # exporter stays faithful to what the engine emitted rather than
+        # papering over it; a consumer can show the hand and say so.
+        "anomalies": [],
     }
 
     street = _open_street(hand, "preflop", [])
@@ -203,6 +207,15 @@ def build_hand(events: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         elif kind == "action":
             seat = by_name.get(event.get("player"))
             amount = int(event.get("amount") or 0)
+            if amount < 0:
+                # engine/table.py: a betting round that early-returns skips the
+                # per-street current_bet reset, so call_amount can come out
+                # negative and hand chips back. Real, pre-existing, and it makes
+                # the pot walk backwards — flag the hand rather than hide it.
+                hand["anomalies"].append(
+                    f"negative amount {amount} on {event.get('player')} "
+                    f"{event.get('action')} (seq {event.get('seq')})"
+                )
             before = pot
             pot += amount
             action = {
@@ -390,6 +403,7 @@ def redact(hand: Dict[str, Any], hero_names: Sequence[str]) -> Dict[str, Any]:
         "payouts": hand["payouts"],
         "pot_total": hand["pot_total"],
         "awarded_total": hand["awarded_total"],
+        "anomalies": hand["anomalies"],
         "redacted": True,
     }
 
