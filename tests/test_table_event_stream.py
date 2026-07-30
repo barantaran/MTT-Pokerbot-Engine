@@ -155,5 +155,68 @@ class TableEventAddressingTests(unittest.TestCase):
         self.assertTrue(all(event["hand_id"] == 2 for event in events))
 
 
+class HandStartDescribesTheTableTests(unittest.TestCase):
+    def _table(self, count=6, stack=1000, level=0):
+        table = Table(table_id=3, tournament_id=9)
+        table.level = level
+        for index in range(count):
+            player = PlayerState(_Bot(f"P{index}"), stack)
+            player.is_active = True
+            table.add_player(player)
+        return table
+
+    def _hand_start(self, events):
+        return next(event for event in events if event["type"] == "hand_start")
+
+    def test_hand_start_names_the_button_and_labels_every_seat(self):
+        table = self._table(level=4)
+
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        start = self._hand_start(events)
+        self.assertEqual(start["level"], 4)
+        self.assertEqual(start["blinds"], {"small": 10, "big": 20})
+        self.assertEqual(start["button_seat"], table.button_idx)
+        self.assertEqual(start["button_player"], table.players[table.button_idx].name)
+        self.assertTrue(start["started_at"].endswith("+00:00"))
+
+        seats = start["players"]
+        self.assertEqual([seat["seat"] for seat in seats], list(range(len(seats))))
+        for index, seat in enumerate(seats):
+            self.assertEqual(seat["position"], table._position_label(index, len(seats)))
+        positions = [seat["position"] for seat in seats]
+        self.assertIn("BTN", positions)
+        self.assertIn("SB", positions)
+        self.assertIn("BB", positions)
+
+    def test_hand_start_keeps_the_legacy_name_and_stack_keys(self):
+        # game_stats and the summarizers read players[].name / .stack; the seat
+        # and position fields are additive.
+        table = self._table()
+
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        for seat in self._hand_start(events)["players"]:
+            self.assertIn("name", seat)
+            self.assertIsInstance(seat["stack"], int)
+
+    def test_button_advances_one_seat_per_hand(self):
+        table = self._table(count=5, stack=100000)
+
+        first = self._hand_start(table.play_hand({"small": 10, "big": 20})[1])
+        second = self._hand_start(table.play_hand({"small": 10, "big": 20})[1])
+
+        self.assertEqual(second["button_seat"], (first["button_seat"] + 1) % 5)
+
+    def test_hand_end_is_timestamped(self):
+        table = self._table()
+
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        end = next(event for event in events if event["type"] == "hand_end")
+        self.assertTrue(end["ended_at"].endswith("+00:00"))
+        self.assertGreaterEqual(end["ended_at"], self._hand_start(events)["started_at"])
+
+
 if __name__ == "__main__":
     unittest.main()

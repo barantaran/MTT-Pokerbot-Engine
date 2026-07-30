@@ -1,4 +1,5 @@
 import random
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Tuple
 from treys import Deck, Evaluator, Card
 from engine.player_state import PlayerState
@@ -25,6 +26,7 @@ class Table:
         self.table_id = table_id
         self.tournament_id = tournament_id
         self.hand_id = 0
+        self.level = 0
         self.players: List[PlayerState] = []
         self.button_idx = 0
         self.evaluator = Evaluator()
@@ -125,26 +127,41 @@ class Table:
             p.setup_new_hand()
         self.current_preflop_spot_type = PREFLOP_SPOT_UNKNOWN
             
-        hand_start_event = {
-            "type": "hand_start",
-            "table_id": self.table_id,
-            "hand_id": self.hand_id,
-            "tournament_id": self.tournament_id,
-            "players": [{"name": p.name, "stack": p.stack} for p in self.players]
-        }
-        events.append(hand_start_event)
-        self.stats_tracker.observe_event(hand_start_event)
-            
-        deck = Deck()
-        board = []
-        pot_manager = PotManager()
-        
-        # Determine positions
+        # Determine positions. This runs before hand_start is built so the event
+        # can name the button and label every seat — a replayer cannot lay out a
+        # table without knowing where the button is.
         num_players = len(self.players)
         # Move button
         self.button_idx = (self.button_idx + 1) % num_players
         sb_idx = (self.button_idx + 1) % num_players
         bb_idx = (self.button_idx + 2) % num_players if num_players > 2 else self.button_idx
+
+        hand_start_event = {
+            "type": "hand_start",
+            "table_id": self.table_id,
+            "hand_id": self.hand_id,
+            "tournament_id": self.tournament_id,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "level": self.level,
+            "blinds": {"small": blinds["small"], "big": blinds["big"]},
+            "button_seat": self.button_idx,
+            "button_player": self.players[self.button_idx].name,
+            "players": [
+                {
+                    "seat": index,
+                    "name": p.name,
+                    "stack": p.stack,
+                    "position": self._position_label(index, num_players),
+                }
+                for index, p in enumerate(self.players)
+            ],
+        }
+        events.append(hand_start_event)
+        self.stats_tracker.observe_event(hand_start_event)
+
+        deck = Deck()
+        board = []
+        pot_manager = PotManager()
 
         # Post Blinds
         sb_player = self.players[sb_idx]
@@ -201,6 +218,7 @@ class Table:
             "table_id": self.table_id,
             "hand_id": self.hand_id,
             "tournament_id": self.tournament_id,
+            "ended_at": datetime.now(timezone.utc).isoformat(),
             "players": [{"name": p.name, "stack": p.stack} for p in self.players],
         })
         

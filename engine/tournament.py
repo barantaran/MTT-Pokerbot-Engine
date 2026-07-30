@@ -126,6 +126,7 @@ class Tournament:
                 table.paid_places = self.paid_places
                 table.players_left = players_left
                 table.payouts = dict(config.payouts)
+                table.level = self.current_blind_idx + 1
                 busted, table_events = table.play_hand(blinds)
                 self.events.extend(table_events)
                 
