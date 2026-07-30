@@ -55,6 +55,29 @@ class Table:
             return "turn"
         return "river"
 
+    def _blind_event(self, player: PlayerState, seat: int, blind: str, amount: int) -> Dict[str, Any]:
+        return {
+            "type": "post_blind",
+            "table_id": self.table_id,
+            "hand_id": self.hand_id,
+            "tournament_id": self.tournament_id,
+            "player": player.name,
+            "seat": seat,
+            "blind": blind,
+            "amount": amount,
+            "street": "preflop",
+        }
+
+    def _board_event(self, cards: List[str], street: str) -> Dict[str, Any]:
+        return {
+            "type": "board",
+            "table_id": self.table_id,
+            "hand_id": self.hand_id,
+            "tournament_id": self.tournament_id,
+            "cards": cards,
+            "street": street,
+        }
+
     def _action_event(
         self,
         player_name: str,
@@ -130,8 +153,8 @@ class Table:
         sb_val = sb_player.bet(blinds['small'])
         bb_val = bb_player.bet(blinds['big'])
         
-        events.append({"type": "post_blind", "table_id": self.table_id, "player": sb_player.name, "amount": sb_val})
-        events.append({"type": "post_blind", "table_id": self.table_id, "player": bb_player.name, "amount": bb_val})
+        events.append(self._blind_event(sb_player, sb_idx, "small", sb_val))
+        events.append(self._blind_event(bb_player, bb_idx, "big", bb_val))
 
         # Deal hole cards
         for p in self.players:
@@ -154,21 +177,21 @@ class Table:
         if self._active_players_count() > 1:
             drawn = deck.draw(3)
             board.extend(drawn)
-            events.append({"type": "board", "table_id": self.table_id, "cards": [Card.int_to_str(c) for c in drawn], "street": "flop"})
+            events.append(self._board_event([Card.int_to_str(c) for c in drawn], "flop"))
             self._betting_round(blinds, board, pot_manager, sb_idx, 0, events)
             
         # 4. Turn
         if self._active_players_count() > 1:
             drawn = self._draw_one(deck)
             board.append(drawn)
-            events.append({"type": "board", "table_id": self.table_id, "cards": [Card.int_to_str(drawn)], "street": "turn"})
+            events.append(self._board_event([Card.int_to_str(drawn)], "turn"))
             self._betting_round(blinds, board, pot_manager, sb_idx, 0, events)
 
         # 5. River
         if self._active_players_count() > 1:
             drawn = self._draw_one(deck)
             board.append(drawn)
-            events.append({"type": "board", "table_id": self.table_id, "cards": [Card.int_to_str(drawn)], "street": "river"})
+            events.append(self._board_event([Card.int_to_str(drawn)], "river"))
             self._betting_round(blinds, board, pot_manager, sb_idx, 0, events)
 
         # 6. Showdown and Pot Distribution
@@ -185,7 +208,18 @@ class Table:
         busted_players = [p for p in self.players if p.stack == 0]
         for p in busted_players:
             self.remove_player(p)
-            
+
+        # Stamp the hand keys and a per-hand sequence number on everything. The
+        # tournament merges one flat event list from every table in turn, so
+        # array position is not an ordering within a hand once the streams are
+        # interleaved — seq is. setdefault leaves the keys the emitters already
+        # set untouched and only fills the gaps.
+        for index, event in enumerate(events):
+            event.setdefault("table_id", self.table_id)
+            event.setdefault("hand_id", self.hand_id)
+            event.setdefault("tournament_id", self.tournament_id)
+            event["seq"] = index
+
         return busted_players, events
 
     def _active_players_count(self) -> int:
@@ -494,7 +528,7 @@ class Table:
         while len(board) < 5:
             drawn = self._draw_one(deck)
             board.append(drawn)
-            events.append({"type": "board", "table_id": self.table_id, "cards": [Card.int_to_str(drawn)], "street": "runout"})
+            events.append(self._board_event([Card.int_to_str(drawn)], "runout"))
 
         # Showdown for real
         player_ranks = {p: self.evaluator.evaluate(board, p.hole_cards) for p in active_players}

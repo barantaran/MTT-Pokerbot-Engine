@@ -98,5 +98,62 @@ class TableEventCardEncodingTests(unittest.TestCase):
                 self.assertIsInstance(Card.new(card), int)
 
 
+class TableEventAddressingTests(unittest.TestCase):
+    def _table(self, count=6, stack=1000, actions=None):
+        table = Table(table_id=3, tournament_id=9)
+        for index in range(count):
+            bot = _ScriptedBot(f"P{index}", (actions or {}).get(index, []))
+            player = PlayerState(bot, stack)
+            player.is_active = True
+            table.add_player(player)
+        return table
+
+    def test_every_event_carries_the_hand_key_and_a_sequence_number(self):
+        table = self._table(actions={index: [("call", 0)] * 4 for index in range(6)})
+
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        self.assertTrue(events)
+        for index, event in enumerate(events):
+            self.assertEqual(event["table_id"], 3, event)
+            self.assertEqual(event["tournament_id"], 9, event)
+            self.assertEqual(event["hand_id"], 1, event)
+            self.assertEqual(event["seq"], index, event)
+
+    def test_post_blind_is_addressable(self):
+        table = self._table(count=3)
+
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        blinds = [event for event in events if event["type"] == "post_blind"]
+        self.assertEqual([event["blind"] for event in blinds], ["small", "big"])
+        for event in blinds:
+            self.assertEqual(event["street"], "preflop")
+            self.assertEqual(event["hand_id"], 1)
+            self.assertEqual(event["tournament_id"], 9)
+            self.assertIsInstance(event["seat"], int)
+            self.assertEqual(table.players[event["seat"]].name, event["player"])
+
+    def test_board_events_name_their_hand(self):
+        table = self._table(actions={index: [("call", 0)] * 4 for index in range(6)})
+
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        boards = [event for event in events if event["type"] == "board"]
+        self.assertEqual([event["street"] for event in boards], ["flop", "turn", "river"])
+        for event in boards:
+            self.assertEqual(event["hand_id"], 1)
+            self.assertEqual(event["tournament_id"], 9)
+
+    def test_sequence_restarts_each_hand(self):
+        table = self._table(count=3, actions={index: [("call", 0)] * 8 for index in range(3)})
+
+        table.play_hand({"small": 10, "big": 20})
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        self.assertEqual(events[0]["seq"], 0)
+        self.assertTrue(all(event["hand_id"] == 2 for event in events))
+
+
 if __name__ == "__main__":
     unittest.main()
