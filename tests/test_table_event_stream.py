@@ -1,0 +1,102 @@
+"""Schema tests for the event stream Table emits.
+
+The stream is consumed outside the engine — the resume log, the stats
+summarizers, and the arena's replay exporter all read these dicts — but nothing
+asserted its shape, which is how two card-encoding bugs survived: the runout
+board and the showdown reveal both emitted raw treys integers while every other
+card field emitted strings.
+"""
+import unittest
+
+from treys import Card, Deck
+
+from engine.player_state import PlayerState
+from engine.pot import PotManager
+from engine.table import Table
+
+
+class _Bot:
+    def __init__(self, name):
+        self.name = name
+
+
+class _ScriptedBot:
+    def __init__(self, name, actions):
+        self.name = name
+        self.actions = list(actions)
+
+    def get_action(self, game_state):
+        if self.actions:
+            return self.actions.pop(0)
+        return ("fold", 0)
+
+
+def _card_values(events):
+    """Every card value the stream carries, from any event that has `cards`."""
+    return [card for event in events if "cards" in event for card in event["cards"]]
+
+
+class TableEventCardEncodingTests(unittest.TestCase):
+    def _table(self, count=6, stack=1000, actions=None):
+        table = Table(table_id=1, tournament_id=7)
+        for index in range(count):
+            bot = _ScriptedBot(f"P{index}", (actions or {}).get(index, []))
+            player = PlayerState(bot, stack)
+            player.is_active = True
+            table.add_player(player)
+        return table
+
+    def test_no_card_value_is_ever_an_int(self):
+        # A full hand: deal, flop, turn, river and (with callers) showdown.
+        table = self._table(actions={index: [("call", 0)] * 4 for index in range(6)})
+
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        cards = _card_values(events)
+        self.assertTrue(cards, "expected the hand to emit card events")
+        for card in cards:
+            self.assertIsInstance(card, str, f"card {card!r} is not a string")
+            self.assertEqual(len(card), 2, f"card {card!r} is not a two-char code")
+
+    def test_showdown_reveals_strings_and_a_readable_rank_class(self):
+        table = self._table(count=2, actions={0: [("call", 0)] * 4, 1: [("call", 0)] * 4})
+
+        _busted, events = table.play_hand({"small": 10, "big": 20})
+
+        showdowns = [event for event in events if event["type"] == "showdown"]
+        self.assertTrue(showdowns, "two callers should reach showdown")
+        for event in showdowns:
+            self.assertEqual(len(event["cards"]), 2)
+            self.assertTrue(all(isinstance(card, str) for card in event["cards"]))
+            self.assertIsInstance(event["rank"], int)
+            # A human-readable class so a consumer never needs treys to render it.
+            self.assertIsInstance(event["rank_class"], str)
+            self.assertTrue(event["rank_class"])
+
+    def test_runout_board_cards_are_strings(self):
+        # The runout path only fires when _showdown is reached with a short
+        # board, which play_hand cannot currently produce (every street deals
+        # while two players are active). Drive _showdown directly so the branch
+        # is still covered.
+        table = self._table(count=2)
+        for player in table.players:
+            player.hole_cards = []
+        deck = Deck()
+        for player in table.players:
+            player.hole_cards = deck.draw(2)
+            player.total_bet = 100
+        events = []
+
+        table._showdown([], PotManager(), deck, events)
+
+        runouts = [event for event in events if event.get("street") == "runout"]
+        self.assertEqual(len(runouts), 5, "an empty board runs out five cards")
+        for event in runouts:
+            self.assertTrue(all(isinstance(card, str) for card in event["cards"]))
+            # and they are real cards, not str() of an int
+            for card in event["cards"]:
+                self.assertIsInstance(Card.new(card), int)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -494,7 +494,7 @@ class Table:
         while len(board) < 5:
             drawn = self._draw_one(deck)
             board.append(drawn)
-            events.append({"type": "board", "table_id": self.table_id, "cards": [drawn], "street": "runout"})
+            events.append({"type": "board", "table_id": self.table_id, "cards": [Card.int_to_str(drawn)], "street": "runout"})
 
         # Showdown for real
         player_ranks = {p: self.evaluator.evaluate(board, p.hole_cards) for p in active_players}
@@ -506,8 +506,11 @@ class Table:
                  "hand_id": self.hand_id,
                  "tournament_id": self.tournament_id,
                  "player": p.name,
-                 "cards": p.hole_cards,
+                 "cards": [Card.int_to_str(c) for c in p.hole_cards],
                  "rank": player_ranks[p],
+                 "rank_class": self.evaluator.class_to_string(
+                     self.evaluator.get_rank_class(player_ranks[p])
+                 ),
              })
         
         # Distribute pots
