@@ -44,7 +44,7 @@ with an architectural map of the code.
 | Layer | Class / module | Responsibility |
 |---|---|---|
 | Tournament | `engine/tournament.py:7` (`Tournament`) | Multi-table orchestration: random seating, per-iteration hand across active tables, blind level advance every `hands_per_level`, table coalescing/breaking, bustout placement, `max_hands_per_tournament` early stop. |
-| Table | `engine/table.py:19` (`Table`) | Single-hand NLHE loop: button move, blinds, deal (`treys.Deck`), preflop→river via `_betting_round()` (`table.py:247`), showdown with `treys.Evaluator`, event stream emission. |
+| Table | `engine/table.py:19` (`Table`) | Single-hand NLHE loop: button move, blinds, deal (`treys.Deck`), preflop→river via `_betting_round()` (`table.py:247`), showdown with `treys.Evaluator`, event stream emission (schema: [EVENT_STREAM.md](EVENT_STREAM.md)). |
 | Pots | `engine/pot.py` (`Pot`, `PotManager`) | Main + side pots rebuilt from per-player `total_bet` at unique all-in thresholds; dead money folded forward. |
 | Player state | `engine/player_state.py` | Stack, current/total bet, active/all-in flags; wraps the bot object. |
 | Config | `engine/config.py` + `config.json` | Starting stack (10,000), 9-max tables, 12 hands/level, 14-level blind schedule, top-7 payout fractions. |
@@ -373,7 +373,7 @@ Also exports shared summary helpers used by the fixed-bot runner.
 | `simulation_results*.csv` | `main.py` | Flat per-seat finish/payout rows. |
 | `runs/<run_id>/<utc_ts>/partial_summary.json` | benchmark runner | Live snapshot, rewritten each progress tick. |
 | `runs/<run_id>/<utc_ts>/fixed_bot_evaluation_report.json` | benchmark runner | Final report: lineup, seeds, engine block, `population_summary`, `population_action_summary` (tool telemetry), per-tournament summaries, failures, runtime. |
-| `runs/…/events/tournament_NNNN_events.json` | benchmark runner | Full event streams, only with `write_events: true`. |
+| `runs/…/events/tournament_NNNN_events.json` | benchmark runner | Full event streams, only with `write_events: true`. Schema: [EVENT_STREAM.md](EVENT_STREAM.md). |
 | `runs/…/checkpoints/`, `*_generation_report.json` | evolutionary trainer | Generation artifacts. |
 
 Generated `runs/` are not committed;

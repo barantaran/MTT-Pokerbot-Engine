@@ -10,6 +10,7 @@ operations, and the self-service authoring model.
 |-----|----------------|
 | [BOTS_AND_TOURNAMENTS.md](BOTS_AND_TOURNAMENTS.md) | Architecture guide — how bots, tools, and tournaments fit together. |
 | [BOT_ARCHITECTURE.md](BOT_ARCHITECTURE.md) | Self-service authoring — the BotTool model agents build against. |
+| [EVENT_STREAM.md](EVENT_STREAM.md) | The event dicts a tournament emits — the contract consumers read. |
 | [MTT_RESUME.md](MTT_RESUME.md) | Marathon resume + durable event log (crash-safe long runs). |
 | [SELF_SERVICE_GLOSSARY.md](SELF_SERVICE_GLOSSARY.md) | Canonical term list for the self-service arena. |
 
