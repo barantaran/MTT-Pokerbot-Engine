@@ -1,10 +1,13 @@
-"""Redacted per-player hand replay slices.
+"""Per-player hand replay slices.
 
-Turns a run's raw event log into one paged, already-redacted slice per
-population (in the arena, per nick), so a service can serve a player their own
-hands without ever holding anyone else's hole cards.
+Turns a run's raw event log into one paged slice per population (in the arena,
+per nick), so a service can serve a player their hands without scanning a
+GB-scale log per request.
 
-Redaction happens **here**, once, at write time, against a single known viewer:
+Two trees come out of one pass over the events:
+
+`<out>/<nick>/` — **redacted**, the contract the arena's `/replay/<run>/<nick>`
+has always served. Projected at write time against a single known viewer:
 
   * the viewer's own hole cards — always
   * the board — always
@@ -12,10 +15,20 @@ Redaction happens **here**, once, at write time, against a single known viewer:
     public information at a real table
   * everything else — never written, so it cannot leak
 
-That is the whole reason the export is per-viewer rather than per-hand. A
-shared per-hand file would have to be either unredacted or redacted at read
-time; the first is a god view and the second puts god data in the reader's
-memory on every request.
+That is the whole reason this tree is per-viewer rather than per-hand. A shared
+per-hand file would have to be either unredacted or redacted at read time; the
+second puts god data in the reader's memory on every request.
+
+`<out>/all/<nick>/` — **the god slice**, written only when `--god-out` is
+passed. The first is not a god view; this one is, deliberately: every hole card
+face-up, for a spectator watching one nick's tournament. Same per-viewer
+filter and hero marking, so the same page renders it; the only difference is
+that nothing is hidden. Opponents' `tool_events` stay stripped even here —
+those are author-written free-form dicts, not part of watching a poker hand.
+
+Publishing this tree makes every entrant's mucked hands readable. That is an
+arena-level product decision (service/ROADMAP.md); the exporter only writes
+what it is asked for, and writes nothing extra when `--god-out` is absent.
 
 Usage:
 
@@ -24,6 +37,7 @@ Usage:
       --report        runs/<run_id>/fixed_bot_evaluation_report.json \
       --run-id        <run_id> \
       --out           runs/<run_id>/replay \
+      --god-out       runs/<run_id>/replay/all \
       --fanout        <bucket-mount>/replays \
       --engine-sha    <sha>
 
@@ -48,6 +62,12 @@ SCHEMA = "mtt-replay/1"
 DEFAULT_PAGE_SIZE = 50
 DEFAULT_MAX_HANDS_PER_NICK = 2000
 REDACTION = "hero-only: own hole cards, the board, and hands shown at showdown"
+REVEAL_ALL = "none: every hole card is written face-up"
+
+# Directory the god slice lives in, under the redacted tree. A population named
+# this would collide with it, so the export refuses rather than overwrite; the
+# arena reserves the name at signup (service/main.py).
+GOD_DIR = "all"
 
 # Path segment for a population name. Populations are usually nicks
 # (^[a-z0-9_-]{3,32}$) but a house lineup can name one "<nick>.<bot>", so
@@ -326,11 +346,23 @@ def hand_ref(start: Dict[str, Any]) -> str:
 # --------------------------------------------------------------------------
 
 
-def redact(hand: Dict[str, Any], hero_names: Sequence[str]) -> Dict[str, Any]:
+def redact(
+    hand: Dict[str, Any],
+    hero_names: Sequence[str],
+    *,
+    reveal_all: bool = False,
+) -> Dict[str, Any]:
     """Project one assembled hand down to what `hero_names` may see.
 
     Everything an opponent held is dropped here, not hidden downstream: a key
     that is never written cannot be leaked by a bug in whatever serves it.
+
+    `reveal_all=True` writes every hole card instead — the god slice. It changes
+    exactly one thing: which `cards` survive. `revealed` keeps meaning "reached
+    showdown" rather than "is face-up on this page", because a viewer still
+    needs to know which hands the table itself saw, and `rank` stays showdown-
+    only because that is the only place the engine evaluates one. Opponents'
+    `tool_events` are stripped either way.
     """
     heroes = set(hero_names)
     revealed = {row["name"]: row for row in hand["showdown"]}
@@ -358,7 +390,7 @@ def redact(hand: Dict[str, Any], hero_names: Sequence[str]) -> Dict[str, Any]:
             "rank": None,
             "rank_class": None,
         }
-        if is_hero:
+        if is_hero or reveal_all:
             out["cards"] = seat["cards"]
         if shown is not None:
             # A hand shown at showdown is public; keep the engine's own reveal.
@@ -404,7 +436,8 @@ def redact(hand: Dict[str, Any], hero_names: Sequence[str]) -> Dict[str, Any]:
         "pot_total": hand["pot_total"],
         "awarded_total": hand["awarded_total"],
         "anomalies": hand["anomalies"],
-        "redacted": True,
+        "redacted": not reveal_all,
+        "reveal_all": reveal_all,
     }
 
 
@@ -480,6 +513,7 @@ def write_slice(
     run_id: str,
     out_root: Path,
     page_size: int,
+    reveal_all: bool = False,
 ) -> Dict[str, Any]:
     records = hero.records()
     pages = [records[i:i + page_size] for i in range(0, len(records), page_size)] or [[]]
@@ -492,13 +526,14 @@ def write_slice(
         atomic_write_json(
             hero_dir / f"hands_{page_number:03d}.json",
             {"schema": SCHEMA, "run_id": run_id, "nick": hero.name,
-             "page": page_number, "hands": page},
+             "page": page_number, "reveal_all": reveal_all, "hands": page},
         )
 
     index = {
         "schema": SCHEMA,
         "run_id": run_id,
         "nick": hero.name,
+        "reveal_all": reveal_all,
         "page_size": page_size,
         "pages": len(pages),
         "hands": len(records),
@@ -518,6 +553,7 @@ def export(
     report: Dict[str, Any],
     run_id: str,
     out_root: Path,
+    god_root: Optional[Path] = None,
     fanout_root: Optional[Path] = None,
     engine_sha: str = "unknown",
     nicks: Optional[Sequence[str]] = None,
@@ -540,6 +576,24 @@ def export(
     if not heroes:
         raise SchemaError(f"no populations to export (asked for {sorted(wanted)})")
 
+    # The god tree lives at <out>/all/, so a population slugging to "all" would
+    # write its redacted hands into the god tree's parent. Refuse loudly.
+    if god_root is not None:
+        collides = [h.name for h in heroes.values() if h.slug == GOD_DIR]
+        if collides:
+            raise SchemaError(
+                f"population {collides!r} collides with the god slice directory "
+                f"{GOD_DIR!r} — rename it or drop --god-out"
+            )
+
+    # Same hands, same hero marking, different projection. Accumulated side by
+    # side off one pass over the events: re-reading a marathon's log to write a
+    # second tree would double the only expensive part of this job.
+    god: Dict[str, HeroSlice] = (
+        {population: HeroSlice(population, max_hands_per_nick) for population in heroes}
+        if god_root is not None else {}
+    )
+
     names_by_population: Dict[str, List[str]] = {}
     for name, population in name_to_population.items():
         names_by_population.setdefault(population, []).append(name)
@@ -560,44 +614,63 @@ def export(
                 if not hero_names:
                     continue  # "hands he played" == hands he was dealt into
                 hero.add(redact(hand, hero_names))
+                if population in god:
+                    god[population].add(redact(hand, hero_names, reveal_all=True))
 
     engine_block = dict(report.get("engine") or {})
-    manifest_nicks = []
-    for population in sorted(heroes):
-        hero = heroes[population]
-        index = write_slice(hero, run_id=run_id, out_root=out_root, page_size=page_size)
-        manifest_nicks.append({
-            "nick": hero.name,
-            "file": hero.slug,
-            "player_names": sorted(names_by_population.get(population, [])),
-            "hands": index["hands"],
-            "hands_total": index["hands_total"],
-            "pages": index["pages"],
-            "truncated": index["truncated"],
-            "tournaments": index["tournaments"],
-        })
 
-    manifest = {
-        "schema": SCHEMA,
-        "run_id": run_id,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "engine_sha": engine_sha,
-        "finished_at": report.get("finished_at"),
-        "mtt_count": mtt_count,
-        "table_size": engine_block.get("max_players_per_table"),
-        "starting_stack": engine_block.get("starting_stack"),
-        "hands_per_level": engine_block.get("hands_per_level"),
-        "blinds_schedule": engine_block.get("blinds_schedule"),
-        "payouts": engine_block.get("payouts"),
-        "page_size": page_size,
-        "redaction": REDACTION,
-        "nicks": manifest_nicks,
-    }
-    # The manifest lands last, so its presence means the whole slice tree did.
-    atomic_write_json(out_root / "index.json", manifest)
+    def write_tree(slices: Dict[str, HeroSlice], root: Path, reveal_all: bool, **extra):
+        rows = []
+        for population in sorted(slices):
+            hero = slices[population]
+            index = write_slice(
+                hero, run_id=run_id, out_root=root,
+                page_size=page_size, reveal_all=reveal_all,
+            )
+            rows.append({
+                "nick": hero.name,
+                "file": hero.slug,
+                "player_names": sorted(names_by_population.get(population, [])),
+                "hands": index["hands"],
+                "hands_total": index["hands_total"],
+                "pages": index["pages"],
+                "truncated": index["truncated"],
+                "tournaments": index["tournaments"],
+            })
+        manifest = {
+            "schema": SCHEMA,
+            "run_id": run_id,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "engine_sha": engine_sha,
+            "finished_at": report.get("finished_at"),
+            "mtt_count": mtt_count,
+            "table_size": engine_block.get("max_players_per_table"),
+            "starting_stack": engine_block.get("starting_stack"),
+            "hands_per_level": engine_block.get("hands_per_level"),
+            "blinds_schedule": engine_block.get("blinds_schedule"),
+            "payouts": engine_block.get("payouts"),
+            "page_size": page_size,
+            "reveal_all": reveal_all,
+            "redaction": REVEAL_ALL if reveal_all else REDACTION,
+            "nicks": rows,
+            **extra,
+        }
+        # The manifest lands last, so its presence means the whole tree did.
+        atomic_write_json(root / "index.json", manifest)
+        return manifest
+
+    # God tree first: the redacted manifest is what every reader treats as "this
+    # run is replayable", so it must not appear while the god tree is half-written.
+    god_manifest = write_tree(god, god_root, True) if god_root is not None else None
+    manifest = write_tree(
+        heroes, out_root, False,
+        **({"god_slice": GOD_DIR} if god_manifest is not None else {}),
+    )
 
     if fanout_root is not None:
-        for row in manifest_nicks:
+        god_hands = {row["nick"]: row["hands"]
+                     for row in (god_manifest or {}).get("nicks", [])}
+        for row in manifest["nicks"]:
             atomic_write_json(
                 fanout_root / row["nick"] / f"{run_id}.json",
                 {
@@ -608,6 +681,9 @@ def export(
                     "page_size": page_size,
                     "truncated": row["truncated"],
                     "tournaments": row["tournaments"],
+                    # Tells /replays whether the watch toggle has anything to
+                    # load, without a second bucket read per row.
+                    "god": row["nick"] in god_hands,
                 },
             )
     return manifest
@@ -624,6 +700,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--god-out", type=Path, default=None,
+        help="also write an unredacted slice tree here (every hole card face-up)",
+    )
     parser.add_argument("--fanout", type=Path, default=None)
     parser.add_argument("--engine-sha", default="unknown")
     parser.add_argument("--nicks", default="", help="comma-separated; default every population")
@@ -640,6 +720,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             report=report,
             run_id=args.run_id,
             out_root=args.out,
+            god_root=args.god_out,
             fanout_root=args.fanout,
             engine_sha=args.engine_sha,
             nicks=[n for n in args.nicks.split(",") if n] or None,
@@ -657,6 +738,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"replay: {len(manifest['nicks'])} nicks, {hands} hands, {pages} pages -> {args.out}",
         flush=True,
     )
+    if args.god_out is not None:
+        print(f"replay: god slice (all cards face-up) -> {args.god_out}", flush=True)
     if truncated:
         print(f"replay: truncated to {args.max_hands_per_nick} hands for {truncated}", flush=True)
     return 0

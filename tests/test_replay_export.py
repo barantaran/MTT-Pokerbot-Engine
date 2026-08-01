@@ -46,12 +46,17 @@ class ReplayExportTests(unittest.TestCase):
         cls.artifact_root = root / "runs" / "replay_export_test"
         cls.report = run_fixed_bot_evaluation(_config(cls.artifact_root), engine_root=ENGINE_ROOT)
         cls.out = cls.artifact_root / "replay"
+        cls.god = cls.out / replay_export.GOD_DIR
         cls.fanout = root / "replays"
+        # Both trees off one export, which is how the box runs it — so the
+        # redaction cases below also prove the god tree does not bleed into the
+        # redacted one.
         cls.manifest = export(
             artifact_root=cls.artifact_root,
             report=cls.report,
             run_id="replay_export_test",
             out_root=cls.out,
+            god_root=cls.god,
             fanout_root=cls.fanout,
             engine_sha="testsha",
             page_size=5,
@@ -65,15 +70,17 @@ class ReplayExportTests(unittest.TestCase):
 
     # -- helpers ----------------------------------------------------------
 
-    def _index(self, nick):
-        with (self.out / nick / "index.json").open(encoding="utf-8") as handle:
+    def _index(self, nick, root=None):
+        root = self.out if root is None else root
+        with (root / nick / "index.json").open(encoding="utf-8") as handle:
             return json.load(handle)
 
-    def _hands(self, nick):
-        index = self._index(nick)
+    def _hands(self, nick, root=None):
+        root = self.out if root is None else root
+        index = self._index(nick, root)
         out = []
         for page in range(index["pages"]):
-            with (self.out / nick / f"hands_{page:03d}.json").open(encoding="utf-8") as handle:
+            with (root / nick / f"hands_{page:03d}.json").open(encoding="utf-8") as handle:
                 out.extend(json.load(handle)["hands"])
         return out
 
@@ -206,6 +213,75 @@ class ReplayExportTests(unittest.TestCase):
         self.assertEqual(actions["hero"]["tool_events"], [{"tool": "t", "secret": "AhKh"}])
         self.assertIsNone(actions["villain"]["tool_events"])
 
+    # -- the god slice ----------------------------------------------------
+
+    def test_the_god_slice_shows_every_hand_that_was_dealt(self):
+        """The whole point of --god-out: nothing is hidden."""
+        seats = [seat for hand in self._hands(self.hero, self.god) for seat in hand["seats"]]
+        self.assertTrue(seats)
+        for seat in seats:
+            self.assertFalse(seat["hidden"], seat["name"])
+            self.assertEqual(len(seat["cards"] or []), 2, seat["name"])
+
+    def test_the_god_slice_holds_the_cards_the_redacted_one_hid(self):
+        """Not just "present" — the same cards the raw log dealt."""
+        dealt = {}
+        for event in self._source_events():
+            if event.get("type") == "deal":
+                ref = "t{}.b{}.h{}".format(
+                    event["tournament_id"], event["table_id"], event["hand_id"])
+                dealt[(ref, event["player"])] = event["cards"]
+
+        checked = 0
+        for hand in self._hands(self.hero, self.god):
+            for seat in hand["seats"]:
+                expected = dealt.get((hand["ref"], seat["name"]))
+                if expected is None:
+                    continue
+                self.assertEqual(seat["cards"], expected, (hand["ref"], seat["name"]))
+                checked += 1
+        self.assertTrue(checked)
+
+    def test_the_god_slice_still_marks_the_hero_and_the_showdowns(self):
+        """The spectator page renders it with the same code, so both must hold:
+        the nick is still bottom-centre, and `revealed` still means the table
+        saw it rather than "this page shows it"."""
+        hands = self._hands(self.hero, self.god)
+        self.assertTrue(all(hand["hero_seats"] for hand in hands))
+        unrevealed = [
+            seat for hand in hands for seat in hand["seats"]
+            if not seat["revealed"]
+        ]
+        self.assertTrue(unrevealed, "expected hands that never reached showdown")
+        for seat in unrevealed:
+            self.assertIsNone(seat["rank"])
+
+    def test_the_god_slice_covers_the_same_hands_as_the_redacted_one(self):
+        self.assertEqual(
+            [hand["ref"] for hand in self._hands(self.hero, self.god)],
+            [hand["ref"] for hand in self._hands(self.hero)],
+        )
+
+    def test_the_god_slice_still_strips_opponent_tool_events(self):
+        """Cards were the decision. An author's free-form payloads were not."""
+        hand = _hand_with_tool_events()
+        record = redact(hand, ["hero"], reveal_all=True)
+        actions = {a["name"]: a for street in record["streets"] for a in street["actions"]}
+        self.assertEqual(actions["hero"]["tool_events"], [{"tool": "t", "secret": "AhKh"}])
+        self.assertIsNone(actions["villain"]["tool_events"])
+
+    def test_each_tree_says_which_one_it_is(self):
+        self.assertTrue(self._index(self.hero, self.god)["reveal_all"])
+        self.assertFalse(self._index(self.hero)["reveal_all"])
+        self.assertTrue(self._hands(self.hero, self.god)[0]["reveal_all"])
+        self.assertTrue(self._hands(self.hero)[0]["redacted"])
+        self.assertEqual(self.manifest["god_slice"], replay_export.GOD_DIR)
+
+    def test_the_fanout_pointer_advertises_the_god_slice(self):
+        for nick in (self.hero, self.villain):
+            with (self.fanout / nick / "replay_export_test.json").open(encoding="utf-8") as fh:
+                self.assertTrue(json.load(fh)["god"], nick)
+
     # -- arithmetic -------------------------------------------------------
 
     def test_pot_tracks_the_bets_and_awards_never_exceed_it(self):
@@ -289,6 +365,36 @@ class ReplayExportGuardTests(unittest.TestCase):
 
     def test_a_clean_hand_has_no_anomalies(self):
         self.assertEqual(build_hand(_minimal_hand_events())["anomalies"], [])
+
+    def test_a_population_named_all_refuses_rather_than_shadow_the_god_tree(self):
+        """`all` is reserved at signup (service/main.py); a legacy lineup that
+        used it would otherwise write its redacted hands over the god tree."""
+        with self.assertRaises(SchemaError) as caught:
+            export(
+                artifact_root=Path("/nonexistent"),
+                report={"mtt_count": 0, "name_to_population": {"bot": "all"}},
+                run_id="x",
+                out_root=Path("/nonexistent/out"),
+                god_root=Path("/nonexistent/out/all"),
+            )
+        self.assertIn("collides", str(caught.exception))
+
+    def test_without_god_out_no_second_tree_is_written(self):
+        """The unredacted tree is opt-in. A caller that does not ask for it must
+        not get one, whatever the arena decided to publish."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_root = root / "runs" / "r"
+            report = run_fixed_bot_evaluation(_config(artifact_root), engine_root=ENGINE_ROOT)
+            out = artifact_root / "replay"
+            manifest = export(
+                artifact_root=artifact_root, report=report, run_id="r",
+                out_root=out, fanout_root=root / "replays", page_size=50,
+            )
+            self.assertFalse((out / replay_export.GOD_DIR).exists())
+            self.assertNotIn("god_slice", manifest)
+            with (root / "replays" / "call" / "r.json").open(encoding="utf-8") as fh:
+                self.assertFalse(json.load(fh)["god"])
 
     def test_truncation_keeps_the_biggest_swings_and_says_so(self):
         hero = replay_export.HeroSlice("h", cap=2)
