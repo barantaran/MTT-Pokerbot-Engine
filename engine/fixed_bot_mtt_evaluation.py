@@ -23,6 +23,8 @@ from engine.event_log import (
 from engine.bot_factory import BOT_REGISTRY, build_configurable_bots, population_for_spec
 from engine.authored_api import AuthoredApi
 from engine.authored_loader import _AuthoredBot, load_authored_bots
+from engine.config import config as runtime_config
+from engine.seat_worker import SeatWorker
 from engine.plugins import ENTRY_SEP as PLUGINS_ENTRY_SEP, ENV_VAR as PLUGINS_ENV_VAR, load_plugins
 from engine.evolutionary_reduced_mtt import (
     _engine_overrides,
@@ -85,11 +87,22 @@ def _build_authored_bots(
 ) -> tuple[List[Any], Dict[str, str]]:
     """Build seat objects for self-service authored bots.
 
-    Each row is ``{nick, bot, folder, count, population?}``. The nick's folder is
-    imported once per worker; each seat is a fresh ``_AuthoredBot`` over the shared
-    function + api, carrying a unique ``name`` so the population summaries key on
-    it just like the class-based bots.
+    Each row is ``{nick, bot, folder, count, population?}``. Each seat carries a
+    unique ``name`` so the population summaries key on it just like the
+    class-based bots.
+
+    With ``authored_isolation`` on (the default) a seat is a ``SeatWorker``: its
+    own process, spawned on its first decision, holding the nick's code — which
+    this parent therefore never imports. Per *seat*, not per nick, so a nick's
+    own multiple entries cannot share memory either. See ``service/INTEGRITY.md``.
+
+    With it off the old in-process path is used: the nick's folder is imported
+    once per worker and each seat is a fresh ``_AuthoredBot`` over the shared
+    function + api. That is for debugging a bot you wrote yourself — it hands
+    third-party code the engine's interpreter.
     """
+    isolated = bool(getattr(runtime_config, "authored_isolation", True))
+    timeout_ms = int(getattr(runtime_config, "bot_decision_timeout_ms", 500))
     bots: List[Any] = []
     name_to_population: Dict[str, str] = {}
     for row in authored_lineup or []:
@@ -100,18 +113,71 @@ def _build_authored_bots(
         if not nick or not bot_name or count <= 0:
             continue
         population = str(row.get("population") or f"{nick}.{bot_name}")
-        fn_map = _authored_fn_map(nick, folder)
-        if bot_name not in fn_map:
-            raise ValueError(
-                f"nick {nick!r} has no bot {bot_name!r}; bots: {sorted(fn_map)}"
-            )
-        base = fn_map[bot_name]
+        base = None
+        if not isolated:
+            fn_map = _authored_fn_map(nick, folder)
+            if bot_name not in fn_map:
+                raise ValueError(
+                    f"nick {nick!r} has no bot {bot_name!r}; bots: {sorted(fn_map)}"
+                )
+            base = fn_map[bot_name]
         for index in range(count):
-            seat = _AuthoredBot(base.fn, base.api)
-            seat.name = population if count == 1 else f"{population}_{index + 1:03d}"
+            seat_name = population if count == 1 else f"{population}_{index + 1:03d}"
+            if isolated:
+                # A folder that will not import, or a missing bot name, is caught
+                # by the worker handshake and folds that seat — it does not raise
+                # here, because one broken nick must not take the whole run down.
+                seat = SeatWorker(
+                    nick, folder, bot_name, seat_name, timeout_ms=timeout_ms
+                )
+            else:
+                seat = _AuthoredBot(base.fn, base.api)
+                seat.name = seat_name
             bots.append(seat)
-            name_to_population[seat.name] = population
+            name_to_population[seat_name] = population
     return bots, name_to_population
+
+
+def _seat_incidents(seats: List[Any]) -> Dict[str, Dict[str, Any]]:
+    """Per-seat timeouts / errors / shut-offs, keyed by seat name.
+
+    Empty for a clean tournament and for the in-process path (an ``_AuthoredBot``
+    has nothing to report — it cannot be timed out).
+    """
+    incidents: Dict[str, Dict[str, Any]] = {}
+    for seat in seats:
+        summarize = getattr(seat, "incident_summary", None)
+        if summarize is None:
+            continue
+        row = summarize()
+        if row:
+            incidents[str(getattr(seat, "name", ""))] = row
+    return incidents
+
+
+def _merge_seat_incidents(tournament_summaries: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Roll per-seat incidents up to one row per nick for the run report.
+
+    Per-seat is the enforcement unit but per-nick is what an operator acts on:
+    "this nick stalled 40 times across the run" is the signal, not which of its
+    entries did it.
+    """
+    merged: Dict[str, Dict[str, Any]] = {}
+    for summary in tournament_summaries:
+        for seat_name, row in (summary.get("seat_incidents") or {}).items():
+            nick = str(row.get("nick") or seat_name)
+            acc = merged.setdefault(
+                nick,
+                {"timeouts": 0, "errors": 0, "strikes": 0, "spawns": 0,
+                 "seats_disabled": 0, "last_error": ""},
+            )
+            for key in ("timeouts", "errors", "strikes", "spawns"):
+                acc[key] += int(row.get(key, 0) or 0)
+            if row.get("disabled"):
+                acc["seats_disabled"] += 1
+            if row.get("last_error"):
+                acc["last_error"] = str(row["last_error"])
+    return merged
 
 
 def _load_bot_library(config: Mapping[str, Any], *, engine_root: Path) -> Dict[str, Dict[str, Any]]:
@@ -233,6 +299,9 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
     engine_config = dict(payload["engine_config"])
     artifact_root = payload.get("artifact_root")
     resume_log = bool(payload.get("resume_log", False)) and artifact_root is not None
+    # Held outside the try so the finally can reap the seat processes no matter
+    # how this tournament ends — a leaked worker outlives the run.
+    authored_bots: List[Any] = []
     try:
         seed = int(payload["seed"])
         _seed_everything(seed)
@@ -270,6 +339,10 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "seed": seed,
                 "results": results,
                 "events": events if bool(payload.get("write_events", False)) else [],
+                # Seats that timed out, raised, or got shut off. Stalling is a
+                # cheap attack (INTEGRITY.md), so it has to be visible to the
+                # operator rather than only in the worker's stdout.
+                "seat_incidents": _seat_incidents(authored_bots),
                 "population_summary": summarize_population_results(results, name_to_population),
                 "action_summary": summarize_candidate_actions(events, name_to_population),
                 "stopped_max_hands": any(event.get("type") == "tournament_stopped_max_hands" for event in events),
@@ -291,12 +364,18 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
             "seed": int(payload.get("seed", 0) or 0),
             "results": [],
             "events": [],
+            "seat_incidents": _seat_incidents(authored_bots),
             "population_summary": {},
             "action_summary": {},
             "stopped_max_hands": False,
             "event_count": 0,
             "failure": str(exc),
         }
+    finally:
+        for seat in authored_bots:
+            close = getattr(seat, "close", None)
+            if close is not None:
+                close()
 
 
 def _population_summary_from_report(report: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -582,6 +661,7 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
                 "population_action_summary": dict(result.get("action_summary", {})),
                 "stopped_max_hands": bool(result.get("stopped_max_hands", False)),
                 "event_count": int(result.get("event_count", 0)),
+                "seat_incidents": dict(result.get("seat_incidents", {}) or {}),
             }
         )
         if write_events and result.get("events"):
@@ -681,6 +761,9 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
         "engine": engine_config,
         "population_summary": population_summary,
         "population_action_summary": population_action_summary,
+        # One row per nick that timed out, raised, or got its seats shut off.
+        # Empty on a clean run.
+        "seat_incidents": _merge_seat_incidents(tournament_summaries),
         "simulation": {
             "population_summary": population_summary,
             "population_action_summary": population_action_summary,

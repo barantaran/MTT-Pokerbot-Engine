@@ -6,7 +6,6 @@ from engine.player_state import PlayerState
 from engine.pot import PotManager
 from engine.config import config
 from engine.game_stats import TableStatsTracker
-import concurrent.futures
 
 
 PREFLOP_SPOT_UNKNOWN = "unknown"
@@ -362,13 +361,17 @@ class Table:
                         ),
                     }
                     
+                    # The decision deadline is enforced by the seat, not here. A
+                    # Python thread cannot be killed, so the ThreadPoolExecutor
+                    # this used to sit in logged "timed out" and then deadlocked
+                    # the whole run: leaving the `with` block calls
+                    # shutdown(wait=True), which joins the runaway thread
+                    # forever. Untrusted authored seats therefore run in their
+                    # own process and enforce their own budget
+                    # (engine/seat_worker.py, service/INTEGRITY.md); house bots
+                    # are trusted code and are called directly.
                     try:
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                            future = executor.submit(player.get_action, state)
-                            action, amount = future.result(timeout=config.bot_decision_timeout_ms / 1000.0)
-                    except concurrent.futures.TimeoutError:
-                        print(f"Bot {player.name} timed out (> {config.bot_decision_timeout_ms}ms). Defaulting to fold.")
-                        action, amount = "fold", 0
+                        action, amount = player.get_action(state)
                     except Exception as e:
                         print(f"Bot {player.name} raised exception: {e}. Defaulting to fold.")
                         action, amount = "fold", 0

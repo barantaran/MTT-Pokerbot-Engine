@@ -19,6 +19,10 @@ class Config:
             self.hands_per_level = data.get("hands_per_level", 20)
             self.blinds_schedule = data.get("blinds_schedule", [{"small": 10, "big": 20}])
             self.max_hands_per_tournament = data.get("max_hands_per_tournament", None)
+            # Run self-service authored bots in their own process, one per seat
+            # (engine/seat_worker.py, service/INTEGRITY.md). This is also what
+            # makes bot_decision_timeout_ms enforceable at all.
+            self.authored_isolation = bool(data.get("authored_isolation", True))
             
             # Payouts is a dictionary mapping placement -> percentage
             # We convert the keys to integers and percentages to floats

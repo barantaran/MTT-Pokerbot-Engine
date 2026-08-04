@@ -165,19 +165,38 @@ folder**. Everything else is denied statically, before the file is ever run:
   allowlist for pure numerics.
 - Card math and randomness come through the injected `api` only.
 
-## Loading and namespacing
+## One process per seat
 
-How a dynamic list of authored bots is imported and called, per MTT.
+**Your bot runs alone, in its own process, for the length of one tournament**
+(`engine/seat_worker.py`; rationale in `service/INTEGRITY.md`). Nothing else is
+in there — not the engine, not another nick, not your own second entry. The
+engine sends the state over a pipe and reads back `(action, amount)`.
 
-**Import happens once per worker process, not per MTT.** A run uses a
-`ProcessPool`; each worker, at init, loads every nick's bot module and its
-sibling tools, then caches them in `sys.modules`. Per tournament, only the *bot
-objects* are rebuilt (fresh table state) — the imported `get_action` is reused,
-and the `api` is built once per worker (card math is stateless).
+What that means for an author:
+
+- **The decision deadline is real.** Miss `bot_decision_timeout_ms` (500 ms by
+  default) and the process is killed outright; the seat folds that decision
+  (checks if it is free). There is no partial credit and no way to overrun it.
+- **A kill costs you memory.** The next decision starts a fresh process, so any
+  module-level state you were carrying across hands is gone. That reset *is* the
+  penalty for stalling.
+- **Five kills and the seat is done** — it stops respawning and folds out the
+  rest of that tournament, blinds included. Timeouts are counted per nick in the
+  run report.
+- **An exception is cheaper than a stall.** Raising folds that one decision and
+  keeps the process (same as before); only a timeout or a crash costs a strike.
+- **A folder that will not import folds the whole seat** for that tournament
+  instead of failing the run. Catch that at `POST /validate`, not in a match.
+- **`print()` is safe.** Worker stdout is redirected to stderr, so it lands in
+  the run log and cannot corrupt the pipe.
+- **Your entries do not know each other.** Two seats of the same nick are two
+  processes and share nothing.
 
 **The call is unchanged.** The engine holds a bot object and calls
 `bot.get_action(game_state)` (`engine/player_state.py`). The author's two-arg
-function reaches that one-arg method through a thin adapter that injects `api`:
+function reaches that one-arg method through a thin adapter that injects `api`
+— in-process it is `_AuthoredBot`, out-of-process it is `SeatWorker` on the
+engine side and a bare `fn(state, api)` call inside the worker:
 
 ```python
 class _AuthoredBot:
@@ -187,10 +206,19 @@ class _AuthoredBot:
 
 The adapter is internal; authors never see it.
 
-**Per-nick namespacing is required because a duel puts two nicks in one
-process.** Both seats of a 2-max table live in the same worker, so if nick A and
-nick B both ship `shove_short.py`, a bare `import shove_short` would collide in
-the global `sys.modules` — one would shadow the other.
+## Loading and namespacing
+
+**Import happens once per seat process, per tournament.** The seat process loads
+your folder — and only your folder — on its first decision, then reuses the
+imported `get_action` for every later decision, with one `api` built alongside it
+(card math is stateless).
+
+**Per-nick namespacing.** Historically both seats of a 2-max duel lived in one
+worker, so if nick A and nick B both shipped `shove_short.py`, a bare
+`import shove_short` would collide in the global `sys.modules` — one would shadow
+the other. Per-seat processes remove that collision; the namespacing stays as the
+second layer, and it is still what makes the in-process debug path
+(`authored_isolation: false`) behave the same as a real run.
 
 The loader prevents this: each nick's folder is loaded as a **private module
 namespace** (e.g. `authored.<nick>.*`) so a bare sibling import inside nick A

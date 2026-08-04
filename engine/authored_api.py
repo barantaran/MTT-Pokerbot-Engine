@@ -2,9 +2,13 @@
 
 An authored bot is a bare ``get_action(state, api)`` function that imports
 nothing native (see ``docs/BOT_ARCHITECTURE.md``). ``api`` is the one capability
-the sandbox grants: seeded, deterministic access to pokerstove's 7-card hand
-evaluator. The engine builds one ``AuthoredApi`` per worker (card math is
-stateless) and injects it through the ``_AuthoredBot`` adapter.
+the seat is handed: seeded, deterministic access to pokerstove's 7-card hand
+evaluator. One ``AuthoredApi`` is built per seat process (card math is stateless)
+and injected through the ``_AuthoredBot`` adapter.
+
+It lives *inside* the seat worker, not across the pipe (``engine/seat_worker.py``):
+``equity(..., n=...)`` is uncapped, so answering it in the parent would let a seat
+burn the CPU of the very process enforcing its deadline.
 
 Surface (raw primitives plus one convenience):
 

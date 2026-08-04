@@ -120,6 +120,10 @@ def default_engine_config() -> Dict[str, Any]:
         "max_hands_per_tournament": 3000,
         "blinds_schedule": DEFAULT_BLINDS,
         "payouts": DEFAULT_PAYOUTS,
+        # Self-service authored seats run out-of-process (service/INTEGRITY.md).
+        # Off only for in-process debugging of a bot you wrote yourself — it
+        # hands untrusted code the engine's own interpreter.
+        "authored_isolation": True,
     }
 
 

@@ -274,6 +274,7 @@ def _engine_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
         "blinds_schedule": list(config.get("blinds_schedule", [{"small": 10, "big": 20}])),
         "payouts": {int(key): float(value) for key, value in payouts_raw.items()},
         "max_hands_per_tournament": None if max_hands is None else int(max_hands),
+        "authored_isolation": bool(config.get("authored_isolation", True)),
     }
 
 
