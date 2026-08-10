@@ -14,7 +14,7 @@ import time
 import unittest
 from pathlib import Path
 
-from engine.seat_worker import DEFAULT_ACTION, SeatWorker
+from engine.seat_worker import DEFAULT_ACTION, KIND_TOOLSTACK, SeatWorker
 
 
 def _state():
@@ -32,6 +32,64 @@ def _state():
         "player_id": "hero",
         "opponent_id": "villain",
     }
+
+
+def _toolstack_state():
+    """The raw dict engine/table.py hands a bot — the tool-stack contract takes
+    this shape verbatim, with no _normalize_state in between.
+
+    Note the cards: table.py deals treys-encoded ints (``deck.draw``), and only
+    _normalize_state turns those into the "As" strings the authored contract
+    shows. The tool stack sees the ints, so this fixture must too.
+    """
+    from treys import Card
+
+    state = _state()
+    state.update(
+        {
+            "hole_cards": [Card.new("As"), Card.new("Kd")],
+            "table_stacks": [10000, 8000, 12000],
+            "hero_table_index": 0,
+            "players_left": 12,
+            "starting_field": 27,
+            "paid_places": 4,
+            "table_id": 1,
+            "hand_id": 7,
+            "tournament_id": 3,
+            "position": "BTN",
+            "preflop_spot_type": "open",
+            "table_stats": {},
+            "opponent_position": "BB",
+            "opponent_stack_size": 8000,
+            "opponent_stack_bb": 80.0,
+            "opponent_stats": None,
+            "_hand_events": [],
+        }
+    )
+    return state
+
+
+# A tool stack is the arena's contract: tool.py registers tool classes on import,
+# bot.json names a registry bot plus the tools to stack on it.
+PROBE_TOOL = """
+from engine.bot_tools import register_bot_tool
+
+
+@register_bot_tool
+class ProbeTool:
+    name = "probe_tool"
+    priority = 10
+
+    def apply(self, context, game_state):
+        return context.with_forced_action("raise", 400).with_tool_event(
+            {"tool": "probe_tool", "decision": "force_raise"}
+        )
+"""
+
+PROBE_SPEC = {
+    "type": "configured_tournament_equity",
+    "params": {"tools": [{"type": "probe_tool"}]},
+}
 
 
 class SeatWorkerTests(unittest.TestCase):
@@ -243,6 +301,125 @@ class SeatWorkerTests(unittest.TestCase):
         with self.assertRaises(OSError):
             # Killing the process group takes the fork with it.
             os.kill(child_pid, 0)
+
+    # -- the arena's contract: tool stacks ---------------------------------- #
+
+    def _toolstack_seat(self, nick: str, source: str, **kwargs) -> SeatWorker:
+        folder = self.root / nick
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "tool.py").write_text(source, encoding="utf-8")
+        seat = SeatWorker(
+            nick,
+            str(folder),
+            "",
+            nick,
+            timeout_ms=kwargs.pop("timeout_ms", 10000),
+            kind=KIND_TOOLSTACK,
+            module="tool",
+            spec=kwargs.pop("spec", PROBE_SPEC),
+            engine_config={},
+            **kwargs,
+        )
+        self.seats.append(seat)
+        return seat
+
+    def test_toolstack_seat_plays(self):
+        seat = self._toolstack_seat("stacker", PROBE_TOOL)
+        self.assertEqual(seat.get_action(_toolstack_state()), ("raise", 400))
+        self.assertEqual(seat.strikes, 0)
+        self.assertIsNone(seat.incident_summary())
+
+    def test_tool_events_survive_the_pipe(self):
+        # The tool stack reports by writing into the state dict it was handed.
+        # Across a pipe that dict is a copy, so the worker has to send the report
+        # back and the parent has to write it into the caller's dict — table.py
+        # reads it off there once get_action returns, and it feeds the replay.
+        seat = self._toolstack_seat("reporter", PROBE_TOOL)
+        state = _toolstack_state()
+        seat.get_action(state)
+        self.assertEqual(state["_bot_tool_event"]["tool"], "probe_tool")
+        self.assertEqual(state["_bot_tool_event"]["decision"], "force_raise")
+        self.assertEqual(
+            [row["tool"] for row in state["_bot_tool_events"]], ["probe_tool"]
+        )
+
+    def test_a_tool_stack_never_reaches_the_parent(self):
+        # The whole point of the seat: this process must not end up holding the
+        # nick's code. If the tool registers here, containment is decorative.
+        from engine.bot_tools import TOOL_REGISTRY
+
+        seat = self._toolstack_seat("private", PROBE_TOOL)
+        seat.get_action(_toolstack_state())
+        self.assertNotIn("probe_tool", TOOL_REGISTRY)
+        self.assertNotIn("ProbeTool", TOOL_REGISTRY)
+
+    def test_unserializable_tool_event_still_pays_the_decision(self):
+        # A tool that puts a non-JSON value in its event must lose the report,
+        # not the action it legally made.
+        seat = self._toolstack_seat(
+            "sloppy",
+            PROBE_TOOL.replace(
+                '{"tool": "probe_tool", "decision": "force_raise"}',
+                '{"tool": "probe_tool", "blob": object()}',
+            ),
+        )
+        state = _toolstack_state()
+        self.assertEqual(seat.get_action(state), ("raise", 400))
+        self.assertNotIn("_bot_tool_event", state)
+
+    def test_broken_tool_stack_folds_the_seat(self):
+        seat = self._toolstack_seat("badstack", "raise RuntimeError('no import')\n")
+        self.assertEqual(seat.get_action(_toolstack_state()), DEFAULT_ACTION)
+        self.assertTrue(seat.disabled)
+        self.assertIn("no import", seat.last_error)
+
+    def test_unknown_tool_in_the_spec_folds_the_seat(self):
+        seat = self._toolstack_seat(
+            "ghosttool",
+            PROBE_TOOL,
+            spec={"type": "configured_tournament_equity",
+                  "params": {"tools": [{"type": "not_a_tool"}]}},
+        )
+        self.assertEqual(seat.get_action(_toolstack_state()), DEFAULT_ACTION)
+        self.assertTrue(seat.disabled)
+
+    # -- identity does not leak through argv -------------------------------- #
+
+    def test_argv_carries_no_identity(self):
+        # /proc/<pid>/cmdline is world-readable: an argv roster is one `ps` away
+        # from every other seat on the box.
+        seat = self._seat("secretive", "def get_action(state, api):\n    return 'call', 0\n")
+        seat.get_action(_state())
+        self.assertIsNotNone(seat.proc)
+        cmdline = Path(f"/proc/{seat.proc.pid}/cmdline").read_bytes().decode()
+        self.assertIn("engine.seat_worker", cmdline)
+        self.assertNotIn("secretive", cmdline)
+        self.assertNotIn(str(self.root), cmdline)
+
+    @unittest.skipUnless(os.geteuid() == 0, "uid drop needs a root parent")
+    def test_uid_drop_takes_the_gid_with_it(self):
+        # user= alone leaves the child at gid 0 — CPython only calls setregid
+        # when group= is passed — so every root:root 0640 file stays readable.
+        import pwd
+
+        try:
+            account = pwd.getpwnam("mttbot000")
+        except KeyError:
+            self.skipTest("mttbot000 not provisioned on this host")
+        seat = self._seat(
+            "dropped",
+            "def get_action(state, api):\n    return 'call', 0\n",
+            user="mttbot000",
+        )
+        seat.get_action(_state())
+        self.assertIsNotNone(seat.proc)
+        status = Path(f"/proc/{seat.proc.pid}/status").read_text()
+        uid_line = next(line for line in status.splitlines() if line.startswith("Uid:"))
+        gid_line = next(line for line in status.splitlines() if line.startswith("Gid:"))
+        self.assertEqual(int(uid_line.split()[1]), account.pw_uid)
+        self.assertEqual(int(gid_line.split()[1]), account.pw_gid)
+        groups = next(line for line in status.splitlines() if line.startswith("Groups:"))
+        self.assertEqual(groups.split()[1:], [])
 
     def test_close_reaps_the_process(self):
         seat = self._seat("polite", "def get_action(state, api):\n    return 'call', 0\n")

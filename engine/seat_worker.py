@@ -21,6 +21,27 @@ The directions are deliberately asymmetric. The parent pickles *to* the worker
 promises); the worker answers in JSON, which the parent type-checks — unpickling
 whatever a hostile seat produced would hand it the parent process.
 
+Two authoring contracts ride the same pipe, selected by the handshake ``kind``:
+
+``authored``
+    A bare ``get_action(state, api)`` per module (``engine/authored_loader.py``).
+    The parent normalizes the state first.
+
+``toolstack``
+    The arena's contract: ``tool.py`` registers tool classes via
+    ``register_bot_tool`` and ``bot.json`` names a registry bot plus its tool
+    list. The worker imports the nick's module and builds exactly one bot from
+    the spec, then calls ``bot.get_action(state)`` on the raw engine dict.
+    Its tools report through ``state["_bot_tool_event(s)"]`` — a back-channel
+    that does not survive a pipe, so the worker returns those in the reply and
+    the parent writes them into the caller's dict. ``engine/table.py`` reads
+    them off the state *after* ``get_action`` returns and they feed the replay
+    slices; drop them and every replay silently loses ``tool_events``.
+
+Identity (nick, folder, bot, spec) travels in that first frame rather than in
+argv: ``/proc/<pid>/cmdline`` is world-readable, so an argv roster is one ``ps``
+away from every other seat on the box.
+
 Because the parent normalizes before sending, this pipe is also the single
 chokepoint where opponent names will be swapped for per-tournament aliases
 (INTEGRITY.md change 3); nothing downstream of the engine ever sees them.
@@ -43,7 +64,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Mapping, Tuple
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[1]
 _LEN = struct.Struct(">I")
@@ -53,6 +74,10 @@ _MAX_FRAME = 8 << 20  # a normalized state is a few KB; this is a sanity bound
 # the same thing the in-process path did on timeout or exception.
 DEFAULT_ACTION: Tuple[str, int] = ("fold", 0)
 _ACTIONS = frozenset({"fold", "call", "check", "raise"})
+
+KIND_AUTHORED = "authored"
+KIND_TOOLSTACK = "toolstack"
+_KINDS = frozenset({KIND_AUTHORED, KIND_TOOLSTACK})
 
 DEFAULT_MAX_STRIKES = 5
 # Import of the nick's folder plus pokerstove (~0.05s measured) — generous, and
@@ -137,7 +162,13 @@ class SeatWorker:
         max_strikes: int = DEFAULT_MAX_STRIKES,
         spawn_timeout_ms: int = DEFAULT_SPAWN_TIMEOUT_MS,
         user: str | None = None,
+        kind: str = KIND_AUTHORED,
+        module: str = "",
+        spec: Mapping[str, Any] | None = None,
+        engine_config: Mapping[str, Any] | None = None,
     ):
+        if kind not in _KINDS:
+            raise ValueError(f"unknown seat kind {kind!r}; expected one of {sorted(_KINDS)}")
         self.nick = nick
         self.folder = str(folder)
         self.bot_name = bot_name
@@ -145,9 +176,15 @@ class SeatWorker:
         self.timeout_ms = int(timeout_ms)
         self.max_strikes = int(max_strikes)
         self.spawn_timeout_ms = int(spawn_timeout_ms)
-        # INTEGRITY.md change 1 drops the seat to an unprivileged uid here; until
-        # that lands the worker inherits the engine's own user.
+        # Dropping the seat to an unprivileged uid (INTEGRITY.md change 1)
+        # requires a root parent: Popen(user=) calls setuid in the child, and
+        # _kill's killpg needs to outrank the uid it signals. With no user set
+        # the worker inherits the engine's own.
         self.user = user
+        self.kind = kind
+        self.module = module
+        self.spec = dict(spec or {})
+        self.engine_config = dict(engine_config or {})
 
         self.proc: subprocess.Popen | None = None
         self.strikes = 0
@@ -168,19 +205,24 @@ class SeatWorker:
         # parent's business and must not be imported next to untrusted code.
         env.pop("MTT_PLUGINS", None)
 
+        # A read-only plugin dir (change 1 chowns them root:mttbotNNN 0640) makes
+        # __pycache__ writes fail noisily for nothing.
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+
         kwargs: Dict[str, Any] = {}
         if self.user:
-            kwargs["user"] = self.user
+            # user= alone is not containment: CPython only calls setregid when
+            # group= is passed and setgroups when extra_groups= is, so the child
+            # would keep gid 0 and read every root:root 0640 file on the box.
+            kwargs.update(
+                user=self.user,
+                group=self.user,
+                extra_groups=[],
+                umask=0o077,
+            )
         try:
             self.proc = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "engine.seat_worker",
-                    self.nick,
-                    self.folder,
-                    self.bot_name,
-                ],
+                [sys.executable, "-m", "engine.seat_worker"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 cwd=str(_ENGINE_ROOT),
@@ -195,8 +237,21 @@ class SeatWorker:
             return self._strike(f"spawn failed: {exc}")
 
         self.spawns += 1
+        handshake = pickle.dumps(
+            {
+                "kind": self.kind,
+                "nick": self.nick,
+                "folder": self.folder,
+                "bot": self.bot_name,
+                "name": self.name,
+                "module": self.module,
+                "spec": self.spec,
+                "engine_config": self.engine_config,
+            },
+            protocol=4,
+        )
         try:
-            reply = self._exchange(None, self.spawn_timeout_ms)
+            reply = self._exchange(handshake, self.spawn_timeout_ms)
         except _SeatTimeout:
             self.timeouts += 1
             return self._strike("hung during import")
@@ -270,7 +325,7 @@ class SeatWorker:
     # -- one round trip ----------------------------------------------------- #
 
     def _exchange(self, payload: bytes | None, timeout_ms: int) -> Dict[str, Any]:
-        """Send one frame (or none, for the handshake) and read one reply."""
+        """Send one frame (the handshake, or a state) and read one reply."""
         assert self.proc is not None and self.proc.stdin and self.proc.stdout
         deadline = time.monotonic() + timeout_ms / 1000.0
         if payload is not None:
@@ -288,11 +343,16 @@ class SeatWorker:
         if self.disabled:
             return DEFAULT_ACTION
 
-        # Normalizing here (not in the worker) keeps the author-facing shape — and
-        # the future alias substitution — on the trusted side of the pipe.
-        from engine.authored_loader import _normalize_state
+        if self.kind == KIND_TOOLSTACK:
+            # The tool-stack contract takes the raw engine dict; table.py builds
+            # it fresh per decision, so there is nothing to normalize.
+            payload = pickle.dumps(game_state, protocol=4)
+        else:
+            # Normalizing here (not in the worker) keeps the author-facing shape —
+            # and the future alias substitution — on the trusted side of the pipe.
+            from engine.authored_loader import _normalize_state
 
-        payload = pickle.dumps(_normalize_state(game_state), protocol=4)
+            payload = pickle.dumps(_normalize_state(game_state), protocol=4)
 
         if self.proc is None and not self._spawn():
             return DEFAULT_ACTION
@@ -324,6 +384,20 @@ class SeatWorker:
             # json gives back int/float; a float chip count was never legal.
             self.errors += 1
             return DEFAULT_ACTION
+
+        # Restore the back-channel the pipe broke: a tool stack reports what it
+        # decided by writing into the state dict it was handed, and table.py
+        # reads that off *this* dict once we return (engine/table.py, the
+        # `_bot_tool_event` lookup right after get_action). Without this the
+        # replay slices lose every tool_event.
+        if self.kind == KIND_TOOLSTACK and isinstance(game_state, dict):
+            event = reply.get("tool_event")
+            if isinstance(event, dict):
+                game_state["_bot_tool_event"] = event
+            events = reply.get("tool_events")
+            if isinstance(events, list) and all(isinstance(row, dict) for row in events):
+                game_state["_bot_tool_events"] = events
+
         return action, amount
 
     def incident_summary(self) -> Dict[str, Any] | None:
@@ -374,7 +448,78 @@ def _coerce_amount(amount):
     return int(amount)
 
 
-def _serve(nick: str, folder: str, bot_name: str) -> int:
+def _load_authored(handshake: Dict[str, Any]):
+    """The bare ``get_action(state, api)`` contract — one function per module."""
+    from engine.authored_api import AuthoredApi
+    from engine.authored_loader import load_authored_bots
+
+    nick = str(handshake.get("nick") or "")
+    bot_name = str(handshake.get("bot") or "")
+    api = AuthoredApi()
+    bots = load_authored_bots(nick, str(handshake.get("folder") or ""), api)
+    if bot_name not in bots:
+        raise KeyError(f"nick {nick!r} has no bot {bot_name!r}; bots: {sorted(bots)}")
+    fn = bots[bot_name].fn
+    return lambda state: fn(state, api)
+
+
+def _load_toolstack(handshake: Dict[str, Any]):
+    """The arena contract — ``tool.py`` registers tool classes on import, and the
+    spec from ``bot.json`` names a registry bot plus the tools to stack on it.
+
+    Exactly one bot: a seat is one entry, and ``count`` is the parent's business.
+    """
+    from engine.bot_factory import build_configurable_bots
+    from engine.plugins import load_plugin
+
+    module = str(handshake.get("module") or "")
+    if not module:
+        raise ValueError("a toolstack seat needs a module name")
+    # Registration is a side effect of this import — the whole point is that the
+    # parent never performs it.
+    load_plugin(f"{handshake.get('folder') or ''}::{module}")
+
+    spec = dict(handshake.get("spec") or {})
+    spec["count"] = 1
+    bots, _ = build_configurable_bots(
+        {}, dict(handshake.get("engine_config") or {}), extra_specs=[spec]
+    )
+    if len(bots) != 1:
+        raise ValueError(f"spec built {len(bots)} bots, expected exactly 1")
+    bot = bots[0]
+    name = str(handshake.get("name") or "")
+    if name:
+        bot.name = name
+    return bot.get_action
+
+
+_LOADERS = {KIND_AUTHORED: _load_authored, KIND_TOOLSTACK: _load_toolstack}
+
+
+def _tool_events_for_reply(state: Any) -> Dict[str, Any]:
+    """A tool stack's reports, but only if they survive JSON.
+
+    A tool that stuffs a non-serializable value into its event would otherwise
+    take down ``_reply`` mid-frame, and the seat would lose a decision it had
+    already made legally. Dropping the report is the cheaper failure.
+    """
+    if not isinstance(state, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    event = state.get("_bot_tool_event")
+    if isinstance(event, dict):
+        out["tool_event"] = event
+    events = state.get("_bot_tool_events")
+    if isinstance(events, list) and all(isinstance(row, dict) for row in events):
+        out["tool_events"] = events
+    try:
+        json.dumps(out)
+    except (TypeError, ValueError):
+        return {}
+    return out
+
+
+def _serve() -> int:
     # Take private copies of the protocol fds, then point the inherited stdio
     # somewhere harmless: a bot that prints (or reads input) must not be able to
     # corrupt or consume the frame stream.
@@ -386,15 +531,22 @@ def _serve(nick: str, folder: str, bot_name: str) -> int:
     os.dup2(2, 1)
     sys.stdout = sys.stderr
 
-    try:
-        from engine.authored_api import AuthoredApi
-        from engine.authored_loader import load_authored_bots
+    # Identity arrives in the first frame, not argv — /proc/<pid>/cmdline is
+    # world-readable and would hand every seat the roster.
+    frame = _blocking_read_frame(proto_in)
+    if frame is None:
+        return 0
 
-        api = AuthoredApi()
-        bots = load_authored_bots(nick, folder, api)
-        if bot_name not in bots:
-            raise KeyError(f"nick {nick!r} has no bot {bot_name!r}; bots: {sorted(bots)}")
-        fn = bots[bot_name].fn
+    kind = KIND_AUTHORED
+    try:
+        handshake = pickle.loads(frame)
+        if not isinstance(handshake, dict):
+            raise TypeError(f"handshake is {type(handshake).__name__}, expected dict")
+        kind = str(handshake.get("kind") or KIND_AUTHORED)
+        loader = _LOADERS.get(kind)
+        if loader is None:
+            raise ValueError(f"unknown seat kind {kind!r}")
+        decide = loader(handshake)
     except BaseException as exc:  # noqa: BLE001 - report, do not traceback into the pipe
         _reply(proto_out, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
         return 1
@@ -406,8 +558,10 @@ def _serve(nick: str, folder: str, bot_name: str) -> int:
             return 0
         state = pickle.loads(frame)
         try:
-            action, amount = fn(state, api)
+            action, amount = decide(state)
             reply = {"ok": True, "action": str(action), "amount": _coerce_amount(amount)}
+            if kind == KIND_TOOLSTACK:
+                reply.update(_tool_events_for_reply(state))
         except BaseException as exc:  # noqa: BLE001 - a bad seat folds, it never kills the hand
             reply = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         _reply(proto_out, reply)
@@ -415,10 +569,13 @@ def _serve(nick: str, folder: str, bot_name: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if len(argv) != 3:
-        print("usage: python -m engine.seat_worker <nick> <folder> <bot>", file=sys.stderr)
+    if argv:
+        print(
+            "usage: python -m engine.seat_worker  (identity arrives on stdin)",
+            file=sys.stderr,
+        )
         return 2
-    return _serve(argv[0], argv[1], argv[2])
+    return _serve()
 
 
 if __name__ == "__main__":

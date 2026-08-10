@@ -24,7 +24,7 @@ from engine.bot_factory import BOT_REGISTRY, build_configurable_bots, population
 from engine.authored_api import AuthoredApi
 from engine.authored_loader import _AuthoredBot, load_authored_bots
 from engine.config import config as runtime_config
-from engine.seat_worker import SeatWorker
+from engine.seat_worker import KIND_AUTHORED, KIND_TOOLSTACK, SeatWorker
 from engine.plugins import ENTRY_SEP as PLUGINS_ENTRY_SEP, ENV_VAR as PLUGINS_ENV_VAR, load_plugins
 from engine.evolutionary_reduced_mtt import (
     _engine_overrides,
@@ -84,12 +84,18 @@ def _authored_fn_map(nick: str, folder: str) -> Dict[str, Any]:
 
 def _build_authored_bots(
     authored_lineup: List[Mapping[str, Any]],
+    engine_config: Mapping[str, Any] | None = None,
 ) -> tuple[List[Any], Dict[str, str]]:
     """Build seat objects for self-service authored bots.
 
-    Each row is ``{nick, bot, folder, count, population?}``. Each seat carries a
-    unique ``name`` so the population summaries key on it just like the
-    class-based bots.
+    Each row is ``{nick, folder, count, kind?, bot?, module?, spec?, user?,
+    population?}``. Each seat carries a unique ``name`` so the population
+    summaries key on it just like the class-based bots.
+
+    ``kind`` picks the authoring contract (``engine/seat_worker.py``):
+    ``"toolstack"`` is what the arena publishes — ``tool.py`` registers tool
+    classes and ``spec`` is the ``bot.json`` entry — and ``"authored"`` is the
+    bare ``get_action`` contract.
 
     With ``authored_isolation`` on (the default) a seat is a ``SeatWorker``: its
     own process, spawned on its first decision, holding the nick's code — which
@@ -99,22 +105,41 @@ def _build_authored_bots(
     With it off the old in-process path is used: the nick's folder is imported
     once per worker and each seat is a fresh ``_AuthoredBot`` over the shared
     function + api. That is for debugging a bot you wrote yourself — it hands
-    third-party code the engine's interpreter.
+    third-party code the engine's interpreter, so it is refused outright for
+    tool-stack rows, where "in-process" would mean the parent importing exactly
+    the code the seat exists to keep out.
     """
     isolated = bool(getattr(runtime_config, "authored_isolation", True))
     timeout_ms = int(getattr(runtime_config, "bot_decision_timeout_ms", 500))
+    engine_config = dict(engine_config or {})
     bots: List[Any] = []
     name_to_population: Dict[str, str] = {}
     for row in authored_lineup or []:
         nick = str(row.get("nick") or "")
+        kind = str(row.get("kind") or KIND_AUTHORED)
         bot_name = str(row.get("bot") or "")
         folder = str(row.get("folder") or "")
+        module = str(row.get("module") or "")
+        spec = dict(row.get("spec") or {})
         count = int(row.get("count", 1) or 0)
-        if not nick or not bot_name or count <= 0:
+        if not nick or count <= 0:
             continue
-        population = str(row.get("population") or f"{nick}.{bot_name}")
+        if kind == KIND_TOOLSTACK:
+            if not module or not spec:
+                continue
+            population = str(row.get("population") or nick)
+        else:
+            if not bot_name:
+                continue
+            population = str(row.get("population") or f"{nick}.{bot_name}")
         base = None
         if not isolated:
+            if kind == KIND_TOOLSTACK:
+                raise ValueError(
+                    f"nick {nick!r}: authored_isolation=false cannot run a toolstack "
+                    "seat — the parent would import the nick's tool.py, which is the "
+                    "one thing the seat exists to prevent (service/INTEGRITY.md)"
+                )
             fn_map = _authored_fn_map(nick, folder)
             if bot_name not in fn_map:
                 raise ValueError(
@@ -128,7 +153,16 @@ def _build_authored_bots(
                 # by the worker handshake and folds that seat — it does not raise
                 # here, because one broken nick must not take the whole run down.
                 seat = SeatWorker(
-                    nick, folder, bot_name, seat_name, timeout_ms=timeout_ms
+                    nick,
+                    folder,
+                    bot_name,
+                    seat_name,
+                    timeout_ms=timeout_ms,
+                    kind=kind,
+                    module=module,
+                    spec=spec,
+                    engine_config=engine_config,
+                    user=(str(row.get("user")) if row.get("user") else None),
                 )
             else:
                 seat = _AuthoredBot(base.fn, base.api)
@@ -225,17 +259,88 @@ def _resolve_plugin_entry(entry: str, *, engine_root: Path) -> str:
     return entry
 
 
-def _load_run_plugins(config: Mapping[str, Any], *, engine_root: Path) -> list[str]:
+def _normalize_authored_lineup(
+    config: Mapping[str, Any], *, engine_root: Path
+) -> List[Dict[str, Any]]:
+    """Resolve each authored row to absolute, worker-ready fields.
+
+    Folders are anchored here (in the parent) so a worker imports the nick
+    without re-deriving engine_root; the default is ``plugins/<nick>`` under
+    engine_root and an explicit folder anchors the way bot_config_dir does.
+
+    ``kind`` selects the authoring contract (``engine/seat_worker.py``). A
+    ``toolstack`` row needs ``module`` + ``spec`` — ``tool.py`` and the ``bot.json``
+    entry — where an ``authored`` row needs a ``bot`` function name. Rows missing
+    what their kind requires are dropped, not raised on: one malformed nick must
+    not take down a field.
+    """
+    rows: List[Dict[str, Any]] = []
+    for row in config.get("authored_lineup", []) or []:
+        nick = str(row.get("nick") or "")
+        kind = str(row.get("kind") or KIND_AUTHORED)
+        bot_name = str(row.get("bot") or "")
+        module = str(row.get("module") or "")
+        spec = dict(row.get("spec") or {})
+        count = int(row.get("count", 1) or 0)
+        if not nick or count <= 0 or kind not in (KIND_AUTHORED, KIND_TOOLSTACK):
+            continue
+        if kind == KIND_TOOLSTACK:
+            if not module or not spec:
+                continue
+            default_population = nick
+        else:
+            if not bot_name:
+                continue
+            default_population = f"{nick}.{bot_name}"
+        raw_folder = row.get("folder") or (Path("plugins") / nick)
+        folder = _config_path(raw_folder, engine_root=engine_root)
+        entry: Dict[str, Any] = {
+            "nick": nick,
+            "kind": kind,
+            "bot": bot_name,
+            "module": module,
+            "spec": spec,
+            "folder": str(folder),
+            "count": count,
+            "population": str(row.get("population") or default_population),
+        }
+        # The uid is assigned on the box, where the mttbotNNN accounts exist
+        # (mtt-cloud-runner/scripts/job-runner.sh); absent everywhere else.
+        if row.get("user"):
+            entry["user"] = str(row["user"])
+        rows.append(entry)
+    return rows
+
+
+def _load_run_plugins(
+    config: Mapping[str, Any],
+    *,
+    engine_root: Path,
+    seat_folders: frozenset[str] = frozenset(),
+) -> list[str]:
     """Load author-private plugins for this run (parent process) and re-export the
     merged entry set into ``MTT_PLUGINS`` so ProcessPool workers inherit it.
 
     Merges the ``MTT_PLUGINS`` env var with the config ``plugins`` list. Returns
     the merged, resolved entry list.
+
+    ``seat_folders`` are the folders that already have an out-of-process seat. A
+    config that also lists one as a plugin is refused rather than honoured: the
+    import would put exactly the code the seat isolates back into the parent, and
+    it would do it silently — containment that fails quietly is worse than none.
     """
     config_entries = [
         _resolve_plugin_entry(entry, engine_root=engine_root)
         for entry in (config.get("plugins", []) or [])
     ]
+    for entry in config_entries:
+        root = entry.split("::", 1)[0].strip() if "::" in entry else ""
+        if root and root in seat_folders:
+            raise ValueError(
+                f"plugin entry {entry!r} imports a folder that also has an authored "
+                "seat; the seat exists so this parent never imports it "
+                "(service/INTEGRITY.md). Drop the nick from config['plugins']."
+            )
     merged = load_plugins(config_entries)
     os.environ[PLUGINS_ENV_VAR] = PLUGINS_ENTRY_SEP.join(merged)
     return merged
@@ -312,7 +417,7 @@ def _run_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
                 list(payload.get("lineup_variants", [])),
             )
             authored_bots, authored_population = _build_authored_bots(
-                list(payload.get("authored_lineup", []))
+                list(payload.get("authored_lineup", [])), engine_config
             )
             bots.extend(authored_bots)
             name_to_population.update(authored_population)
@@ -551,9 +656,19 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     mtt_count = int(config.get("mtt_count", 200))
     workers = max(1, min(int(config.get("workers", 8)), mtt_count))
     tournament_seeds = _resolve_tournament_seeds(config, mtt_count)
+    # Self-service authored bots: resolve each nick's folder to an absolute path
+    # here (parent) so workers import it without re-deriving engine_root. Default
+    # is plugins/<nick> under engine_root; an explicit folder is anchored the same
+    # way bot_config_dir is. Normalized before the plugin load below so that load
+    # can refuse to import a folder a seat already owns.
+    authored_lineup = _normalize_authored_lineup(config, engine_root=engine_root)
     # Load author-private bot/tool plugins before any registry lookup (the bot
     # library / named-lineup expansion below resolves against BOT_REGISTRY).
-    _load_run_plugins(config, engine_root=engine_root)
+    _load_run_plugins(
+        config,
+        engine_root=engine_root,
+        seat_folders=frozenset(row["folder"] for row in authored_lineup),
+    )
     lineup = dict(config.get("lineup", {}))
     lineup_variants = list(config.get("lineup_variants", config.get("bot_lineup", [])) or [])
     named_lineup = list(config.get("named_lineup", []) or [])
@@ -562,28 +677,6 @@ def run_fixed_bot_evaluation(config: Dict[str, Any], *, engine_root: Path) -> Di
     for bot_name, count in named_legacy_lineup.items():
         lineup[bot_name] = int(lineup.get(bot_name, 0)) + int(count)
     lineup_variants.extend(named_specs)
-    # Self-service authored bots: resolve each nick's folder to an absolute path
-    # here (parent) so workers import it without re-deriving engine_root. Default
-    # is plugins/<nick> under engine_root; an explicit folder is anchored the same
-    # way bot_config_dir is.
-    authored_lineup: List[Dict[str, Any]] = []
-    for row in config.get("authored_lineup", []) or []:
-        nick = str(row.get("nick") or "")
-        bot_name = str(row.get("bot") or "")
-        count = int(row.get("count", 1) or 0)
-        if not nick or not bot_name or count <= 0:
-            continue
-        raw_folder = row.get("folder") or (Path("plugins") / nick)
-        folder = _config_path(raw_folder, engine_root=engine_root)
-        authored_lineup.append(
-            {
-                "nick": nick,
-                "bot": bot_name,
-                "folder": str(folder),
-                "count": count,
-                "population": str(row.get("population") or f"{nick}.{bot_name}"),
-            }
-        )
     engine_config = default_engine_config()
     engine_config.update(dict(config.get("engine", {})))
 
