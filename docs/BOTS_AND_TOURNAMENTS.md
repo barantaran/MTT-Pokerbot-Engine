@@ -53,10 +53,11 @@ with an architectural map of the code.
 
 ### 2.2 The decision loop
 
-Each turn, `Table` builds a rich `state` dict (`table.py:280-318`) containing:
+Each turn, `Table` builds a rich `state` dict (`table.py:326-366`) containing:
 
 - cards, board, pot, stacks, legal actions and amounts;
-- position label (`_position_label`, `table.py:466`);
+- seating: `hero_table_index`, `button_seat`, and the precomputed `position`
+  label (`_position_label`, `table.py:517`) that legacy bots read;
 - preflop spot classification (`_preflop_spot_type`, `table.py:198`):
   `limped / srp / three_bet / four_bet / five_bet_plus / all_in_pressure`;
 - ICM context: `payouts`, `players_left`, `paid_places`, `starting_field`
@@ -64,10 +65,14 @@ Each turn, `Table` builds a rich `state` dict (`table.py:280-318`) containing:
   `engine/bot_tools.py` `derive_*` helpers, not in the state dict);
 - table stats snapshot from `TableStatsTracker`.
 
-The bot's `get_action` is called under a per-decision timeout
-(`ThreadPoolExecutor`, `table.py:320-329`, governed by
-`bot_decision_timeout_ms`). Timeout or exception ⇒ fold. This keeps one broken
-bot from stalling a simulation.
+The bot's `get_action` is called under a per-decision timeout governed by
+`bot_decision_timeout_ms`. The table itself just calls the bot (`table.py:374`);
+the deadline is enforced by the seat, because a Python thread cannot be killed
+and the old `ThreadPoolExecutor` deadlocked the run on shutdown. Untrusted
+authored seats run in their own process and enforce their own budget
+(`engine/seat_worker.py`); house bots are trusted code and are called directly.
+Timeout or exception ⇒ fold. This keeps one broken bot from stalling a
+simulation.
 
 ### 2.3 Equity
 

@@ -30,12 +30,13 @@ def get_action(state, api):
 ```python
 # plugins/yourchev/shove_short.py   — a tool
 def shove_short(state, api):
-    if state["hero"]["stack_bb"] > 12:
+    stack = state["table_stacks"][state["hero"]["seat"]]
+    if stack / state["blinds"]["big"] > 12:
         return None                       # not my spot, defer
     eq = api.equity(state["hero"]["hole"], state["board"],
-                    state["villain_hands"], n=500)
+                    [None] * state["live_opponents"], n=500)
     if eq > 0.42:
-        return ("raise", state["hero"]["stack"])   # jam
+        return ("raise", stack)           # jam
     return None
 ```
 
@@ -97,38 +98,69 @@ classes) is translated to this author-facing shape at the seam by
 `_normalize_state` (`engine/authored_loader.py`) — the author never sees a treys
 int, and legacy bots never see this dict.
 
+**Only what you cannot compute.** The engine ships current table truth it alone
+holds, plus the event log everything else follows from — and stops there. There
+is no `stack_bb`, no `street`, no `position` label, no `spot_type`, no equity
+and no threshold, because each of those is a line of your own code over what is
+already in the dict. What you build from these facts is the whole game.
+
 ```python
 state = {
   "hero": {
     "hole": ["As", "Kd"],   # string cards, always 2
-    "stack": 1500,          # chips
-    "stack_bb": 30.0,       # chips / big blind
-    "position": "BTN",
+    "seat": 3,              # index into table_stacks
     "call_amount": 100,     # chips to call (0 = can check)
     "min_raise": 200,       # chips
   },
   "board": ["Qh", "Jc", "2s"],       # 0-5 string cards
   "pot": 300,
   "blinds": {"small": 25, "big": 50},
-  "villain_hands": [None, None],     # one per live opponent; api samples them
-  "opponent": {                      # the aggressor hero faces, if any
-    "id": "villainX", "position": "SB",
-    "stack": 900, "stack_bb": 18.0,
-    "stats": {...} or None,
-  },
-  "history": [                       # actions so far this hand, in order
-    {"player": "villainX", "action": "raise", "amount": 150,
-     "street": "preflop", "position": "SB"},
+  "table_stacks": [1500, 900, ...],  # chips behind, by seat
+  "button_seat": 0,
+  "live_opponents": 2,               # villains still in the hand
+  "events": [                        # this hand so far, in order
+    {"type": "hand_start", "hand_id": 12, "level": 3,
+     "blinds": {"small": 25, "big": 50}, "button_seat": 0,
+     "players": [{"seat": 0, "name": "villainX", "stack": 900}, ...]},
+    {"type": "post_blind", "player": "villainX", "seat": 1,
+     "blind": "small", "amount": 25, "street": "preflop"},
+    {"type": "action", "player": "villainX", "action": "raise",
+     "amount": 150, "street": "preflop"},
+    {"type": "board", "cards": ["Qh", "Jc", "2s"], "street": "flop"},
   ],
   "tournament": {
     "players_left": 40, "starting_field": 100,
     "paid_places": 15, "payouts": {...},
   },
+  "stats": {"villainX": {"vpip": 0.31, "pfr": 0.24, ...}},
 }
 ```
 
-`villain_hands` is exactly what `api.deal` / `api.equity` want: villains are
-hidden, so each entry is `None` and the `api` draws them from the live deck.
+Worked out from that, not shipped: your stack is `table_stacks[hero["seat"]]`,
+in blinds it is that over `blinds["big"]`; the street is `len(board)`; your
+position is your seat's offset from `button_seat` around the seating in
+`hand_start`; the preflop spot shape is the raise sequence in `events`.
+
+`api.deal` / `api.equity` take a `villain_hands` list — build it as
+`[None] * state["live_opponents"]`. Villains are hidden, so every entry is
+`None` and the `api` draws them from the live deck each runout.
+
+Two things stay in the dict that you could in principle reconstruct:
+
+- **`call_amount` / `min_raise`** are engine *rulings*, not measurements.
+  Derive them wrong and every reply is illegal, so the legal bounds of your
+  return value come from the side that enforces them.
+- **`stats`** cannot be rebuilt from where you sit: you are called only when it
+  is your turn, so you never see hands you sat out or streets after you folded,
+  and a timeout kill wipes any accumulator you kept (see *One process per
+  seat*). It is keyed by player name — you decide who matters, the `events`
+  name the aggressor. Today the tracker prices one snapshot per decision, so
+  the map holds the player you are facing; treat a missing key as unknown, not
+  as zero.
+
+`events` is an **allowlist projection** of the table's event log, not the log:
+the engine's own list carries a `deal` event with every player's hole cards and
+the deciding tool's debug payload on each action. Neither crosses the seam.
 
 ## The `api` — injected card math
 

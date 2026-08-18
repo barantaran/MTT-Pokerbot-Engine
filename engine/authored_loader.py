@@ -45,22 +45,60 @@ def _cards_to_str(cards):
     return [Card.int_to_str(c) if isinstance(c, int) else c for c in cards]
 
 
-def _history(events):
-    """Actions taken so far this hand, in order. Filters the engine's mixed event
-    log (``engine/table.py``) down to a stable per-action shape; board/blind/
-    showdown events are dropped — the author reads board and pot from the top
-    level, not by replaying them."""
+def _events(events):
+    """The hand so far, in order — blinds, board runouts and actions.
+
+    Everything the state no longer spells out is derived from this list, so it
+    carries more than actions: position labels come from ``hand_start``, the
+    preflop spot shape from the raise sequence, per-street contributions from
+    the amounts.
+
+    It is also the redaction boundary. The engine's event list is the *table's*
+    log: it holds a ``deal`` event with every player's hole cards, and each
+    action can carry the deciding tool's debug payload. So this is an allowlist
+    projection — a new event type reaches no author until it is named here —
+    and per-event keys the author can derive (``position``, ``call_amount``,
+    ``pot_size``) are left out with the rest."""
     if not events:
         return []
     out = []
     for event in events:
-        if event.get("type") == "action":
+        kind = event.get("type")
+        if kind == "hand_start":
             out.append({
+                "type": "hand_start",
+                "hand_id": event.get("hand_id"),
+                "level": event.get("level"),
+                "blinds": dict(event.get("blinds") or {}),
+                "button_seat": event.get("button_seat"),
+                "players": [
+                    {"seat": seat.get("seat"), "name": seat.get("name"),
+                     "stack": seat.get("stack")}
+                    for seat in event.get("players") or []
+                ],
+            })
+        elif kind == "post_blind":
+            out.append({
+                "type": "post_blind",
+                "player": event.get("player"),
+                "seat": event.get("seat"),
+                "blind": event.get("blind"),
+                "amount": event.get("amount"),
+                "street": event.get("street"),
+            })
+        elif kind == "board":
+            out.append({
+                "type": "board",
+                "cards": list(event.get("cards") or []),
+                "street": event.get("street"),
+            })
+        elif kind == "action":
+            out.append({
+                "type": "action",
                 "player": event.get("player"),
                 "action": event.get("action"),
                 "amount": event.get("amount"),
                 "street": event.get("street"),
-                "position": event.get("position"),
             })
     return out
 
@@ -68,42 +106,58 @@ def _history(events):
 def _normalize_state(state):
     """Translate the engine's internal ``state`` (treys ints, flat, built for the
     legacy bot classes in ``engine/table.py``) into the raw-facts dict authored
-    bots are promised (``docs/BOT_ARCHITECTURE.md`` — cards as strings, hero and
-    opponent grouped, stacks in chips *and* bb, action history, ``villain_hands``
-    ready for ``api``). Legacy bots never go through here; they read the internal
-    shape directly. Villains are hidden, so ``villain_hands`` is one ``None`` per
-    live opponent — the ``api`` samples them each runout."""
+    bots are promised (``docs/BOT_ARCHITECTURE.md``). Legacy bots never go
+    through here; they read the internal shape directly.
+
+    **Only what the author cannot compute.** The engine ships current table
+    truth it alone holds, plus the event log everything else follows from. It
+    does not ship anything the author can work out from those, which is why
+    there is no ``stack_bb`` (``table_stacks[seat] / blinds["big"]``), no
+    ``street`` (``len(board)``), no ``position`` (``button_seat`` and the
+    ``hand_start`` seating), no ``spot_type`` (the raise sequence in
+    ``events``), and no equity or threshold of any kind — equity is the
+    author's, computed through ``api`` against the pokerstove evaluator.
+
+    Two things stay that a determined author could reconstruct:
+
+    * ``call_amount`` / ``min_raise`` — engine *rulings*, not measurements. A
+      seat that derives them wrong returns an illegal action every time, so the
+      legal bounds of the reply come from the side that enforces them.
+    * ``stats`` — a seat is only called when it is to act, so it never observes
+      hands it sat out or streets after it folded, and a timeout kill wipes any
+      accumulator it kept. Keyed by player name: the author decides who matters
+      (the ``events`` name the aggressor), the engine only supplies the counts
+      it alone could keep. Today the tracker prices one snapshot per decision,
+      so the map holds the faced aggressor.
+    """
     blinds = state.get("blinds") or {}
-    big = blinds.get("big", 0) or 0
-    stack = int(state.get("stack_size", 0) or 0)
     active = int(state.get("active_players", 1) or 1)
+    opponent_id = str(state.get("opponent_id", "") or "")
+    opponent_stats = state.get("opponent_stats")
     return {
         "hero": {
             "hole": _cards_to_str(state.get("hole_cards")),
-            "stack": stack,
-            "stack_bb": stack / big if big else 0.0,
-            "position": state.get("position", ""),
+            "seat": int(state.get("hero_table_index", 0) or 0),
             "call_amount": int(state.get("call_amount", 0) or 0),
             "min_raise": int(state.get("min_raise", 0) or 0),
         },
         "board": _cards_to_str(state.get("board_cards")),
         "pot": int(state.get("pot_size", 0) or 0),
         "blinds": dict(blinds),
-        "villain_hands": [None] * max(0, active - 1),
-        "opponent": {
-            "id": state.get("opponent_id", ""),
-            "position": state.get("opponent_position", ""),
-            "stack": int(state.get("opponent_stack_size", 0) or 0),
-            "stack_bb": float(state.get("opponent_stack_bb", 0.0) or 0.0),
-            "stats": state.get("opponent_stats"),
-        },
-        "history": _history(state.get("_hand_events")),
+        "table_stacks": [int(chips or 0) for chips in state.get("table_stacks") or []],
+        "button_seat": int(state.get("button_seat", 0) or 0),
+        # Villains are hidden, so this is the count, not the hands: the author
+        # builds `[None] * live_opponents` for `api.deal` / `api.equity`, which
+        # samples each unknown hand from the live deck every runout.
+        "live_opponents": max(0, active - 1),
+        "events": _events(state.get("_hand_events")),
         "tournament": {
             "players_left": state.get("players_left"),
             "starting_field": state.get("starting_field"),
             "paid_places": state.get("paid_places"),
             "payouts": dict(state.get("payouts") or {}),
         },
+        "stats": {opponent_id: opponent_stats} if opponent_id and opponent_stats else {},
     }
 
 

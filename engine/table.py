@@ -331,6 +331,10 @@ class Table:
                         "stack_size": player.stack,
                         "table_stacks": [p.stack for p in self.players],
                         "hero_table_index": idx,
+                        # Authored seats get the button and derive every position
+                        # label from it (engine/authored_loader.py); the legacy
+                        # bots read the precomputed `position` below instead.
+                        "button_seat": self.button_idx,
                         "call_amount": call_amount,
                         "min_raise": min_raise,
                         "blinds": blinds,
